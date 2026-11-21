@@ -72,7 +72,9 @@ services:
   api:
     build: *jobs-build
     command: ["python", "-m", "uvicorn", "fuel_stop.public_api:app", "--host", "0.0.0.0", "--port", "8001"]
-    environment: *jobs-environment
+    environment:
+      <<: *jobs-environment
+      WORKER_URL: http://worker:8000
     depends_on:
       postgres:
         condition: service_healthy

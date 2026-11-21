@@ -1,14 +1,18 @@
 """Public, asynchronous trip-job API."""
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import UUID
 
+import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .jobs import JobReceipt, JobStore, JobView
-from .models import Trip
+from .models import StationCatalogue, Trip
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +21,20 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     app.state.jobs = JobStore()
     app.state.jobs.initialize()
-    yield
+    worker = os.getenv("WORKER_URL", "http://127.0.0.1:8000")
+    with httpx.Client(base_url=worker, timeout=5) as client:
+        app.state.worker = client
+        yield
 
 
 app = FastAPI(title="Austria fuel-stop trip API", lifespan=lifespan)
+web = Path(__file__).resolve().parents[1] / "web"
+app.mount("/assets", StaticFiles(directory=web), name="assets")
+
+
+@app.get("/", include_in_schema=False)
+def trip_map():
+    return FileResponse(web / "index.html")
 
 
 @app.exception_handler(psycopg.Error)
@@ -34,6 +48,16 @@ def ready():
     with app.state.jobs.connect() as db:
         db.execute("SELECT id FROM trip_jobs LIMIT 1")
     return {"status": "ok"}
+
+
+@app.get("/stations", response_model=StationCatalogue)
+def list_stations():
+    try:
+        response = app.state.worker.get("/stations")
+        response.raise_for_status()
+        return StationCatalogue.model_validate(response.json())
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(503, detail={"status": "station_catalogue_unavailable"}) from None
 
 
 @app.post("/trip-plans", response_model=JobReceipt, status_code=202)

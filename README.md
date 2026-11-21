@@ -3,7 +3,8 @@
 This repository implements an **Austrian single-stop fuel planner** and a public
 trip API backed by **PostgreSQL**. The controller dispatches trip jobs to the
 planner, which uses **local OSRM in Docker** for real road routing. No routing
-account or API key is required. The map UI and carbon-aware dispatch are future work.
+account or API key is required. The map UI submits trips through the public API.
+Carbon-aware dispatch is future work.
 
 ## Run it on Windows
 
@@ -45,6 +46,13 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -ContentType "app
 ```
 
 ### Submit trips through the public API
+
+Open the [trip map](http://127.0.0.1:8001/) after Compose starts. It automatically
+plans the low-fuel Vienna-to-Graz example. Try the direct-trip example or change
+the cities and vehicle settings. Select **All stations** to show the full local
+catalogue and click a station for its fuel types and opening hours. The map
+background uses online OpenStreetMap tiles, while route calculation and station
+lookup run locally.
 
 Open [public API documentation](http://127.0.0.1:8001/docs). A
 `POST /trip-plans` accepts the same inputs as the worker and returns HTTP

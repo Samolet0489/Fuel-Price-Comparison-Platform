@@ -9,3 +9,7 @@
 !requirements-data.lock
 !scripts/
 !scripts/*.py
+!web/
+!web/*.html
+!web/*.css
+!web/*.js

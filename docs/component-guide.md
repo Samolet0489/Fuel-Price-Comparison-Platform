@@ -130,7 +130,7 @@ can explicitly convert them to numbers for display. Coordinates are numeric.
 | 503 | `routing_unavailable` | Local OSRM call failed or returned invalid data |
 | 503 | `boundary_unavailable` | Local country boundary missing or invalid; never bypass the check |
 | 503 | `stations_unavailable` | Local catalogue missing/invalid, or explicit online station query failed |
-| 503 | `station_capacity_unavailable` | More than 200 candidates; nothing silently truncated |
+| 503 | `station_capacity_unavailable` | Optional online Overpass lookup matched more than 200 candidates |
 
 Business outcomes are at the JSON top level. HTTP errors use FastAPI's `detail`
 object. A routing failure while comparing any candidate aborts the plan; choosing
@@ -159,12 +159,10 @@ current result states its restricted station scope rather than claiming to compa
 every Austrian station. OSM can represent one facility as several objects; the
 authorised feed must map its station IDs correctly and resolve duplicates.
 
-Requests use bounded HTTP timeouts but evaluate stations sequentially, up to 200.
-There is no whole-job deadline, routing cache, rate-limit scheduler or durable queue
-yet. Local routing removes hosted-routing quotas but still uses CPU and memory;
-Optional Overpass diagnostics and price-source quotas remain. Keep this worker private and test a
-small case first. Before general live use, measure call counts, add caching/batching
-and define a whole-job deadline with the future API.
+The worker checks matching local catalogue stations sequentially. The public API's
+controller uses a bounded worker timeout, so large searches can still time out.
+Local routing removes hosted-routing quotas but still uses CPU and memory.
+Optional Overpass diagnostics and price-source quotas remain.
 
 Saved cases intentionally use synthetic data with an explicit `replay` label.
 They prove calculations and contracts. They do not prove live provider coverage or

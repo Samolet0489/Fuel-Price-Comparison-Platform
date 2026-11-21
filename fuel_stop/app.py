@@ -7,7 +7,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
-from .models import Plan, Trip
+from .models import Plan, StationCatalogue, Trip
 from .boundary import AustriaBoundary
 from .planner import BorderRestrictedRoute, DependencyUnavailable, NoRoute, OutsideAustria, plan
 from .providers import AuthorisedPrices, OSRMRouter, OSMStations
@@ -38,10 +38,14 @@ def boundary():
     return load_boundary(os.getenv("AUSTRIA_BOUNDARY_FILE", "data/osrm/austria-boundary.geojson"))
 
 
+def local_stations():
+    return LocalStations(os.getenv("STATION_CATALOGUE_FILE", "data/osrm/stations.json"), boundary())
+
+
 def station_provider(client):
     source = os.getenv("STATION_SOURCE", "local")
     if source == "local":
-        return LocalStations(os.getenv("STATION_CATALOGUE_FILE", "data/osrm/stations.json"), boundary())
+        return local_stations()
     if source == "overpass":
         return OSMStations(client, os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter"))
     raise DependencyUnavailable("stations", "invalid_station_source")
@@ -72,6 +76,16 @@ def ready(response: Response):
 @app.get("/metrics", include_in_schema=False)
 def metrics():
     return Response(generate_latest(), headers={"Content-Type": CONTENT_TYPE_LATEST})
+
+
+@app.get("/stations", response_model=StationCatalogue)
+def list_stations():
+    try:
+        catalogue = local_stations()
+        stations = catalogue.load()
+    except DependencyUnavailable as exc:
+        raise HTTPException(503, detail={"status": f"{exc.dependency}_unavailable", "reason": exc.reason}) from None
+    return StationCatalogue(source=catalogue.source, data_timestamp=catalogue.data_timestamp, stations=stations)
 
 
 @app.post("/plan", response_model=Plan)

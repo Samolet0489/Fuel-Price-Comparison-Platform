@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FuelRoute · Austria trip planner</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <link rel="stylesheet" href="/assets/planner.css">
+    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script defer src="/assets/planner.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand"><span class="brand-icon" aria-hidden="true">⌁</span>Fuel<span>Route</span></div>
+        <div class="header-links"><span class="region">Austria</span><a href="/docs">API docs</a></div>
+    </header>
+    <main>
+        <section class="controls" aria-labelledby="heading">
+            <h1 id="heading">Plan your drive</h1>
+            <p class="intro">Find a reachable fuel stop on your route through Austria.</p>
+            <form id="trip-form">
+                <fieldset>
+                    <legend>Trip</legend>
+                    <div class="locations">
+                        <label class="location origin">From
+                            <select id="origin" name="origin" required></select>
+                        </label>
+                        <button class="swap" id="swap" type="button" aria-label="Swap origin and destination" title="Swap origin and destination">⇄</button>
+                        <label class="location destination">To
+                            <select id="destination" name="destination" required></select>
+                        </label>
+                    </div>
+                </fieldset>
+                <fieldset class="vehicle">
+                    <legend>Vehicle &amp; fuel</legend>
+                    <div class="field-grid">
+                        <label><span class="field-title">Fuel type</span>
+                            <select name="fuel_type"><option value="diesel">Diesel</option><option value="petrol95">Petrol 95</option></select>
+                        </label>
+                        <label><span class="field-title">Current fuel <span>(L)</span></span>
+                            <input name="current_fuel_l" type="number" min="0" max="200" step="any" value="8" required>
+                        </label>
+                        <label><span class="field-title">Tank capacity <span>(L)</span></span>
+                            <input name="tank_capacity_l" type="number" min="0.01" max="200" step="any" value="40" required>
+                        </label>
+                        <label><span class="field-title">Consumption <span>(L/100 km)</span></span>
+                            <input name="consumption_l_per_100km" type="number" min="0.01" max="100" step="any" value="6" required>
+                        </label>
+                        <label><span class="field-title">Arrival reserve <span>(L)</span></span>
+                            <input name="arrival_reserve_l" type="number" min="0" max="200" step="any" value="3" required>
+                        </label>
+                        <label><span class="field-title">Max detour <span>(km)</span></span>
+                            <input name="max_detour_km" type="number" min="0" step="any" value="15" placeholder="Optional">
+                        </label>
+                    </div>
+                </fieldset>
+                <button id="submit" class="primary" type="submit">Plan trip</button>
+                <div class="example-actions" aria-label="Example trips">
+                    <button id="example-stop" type="button">Try low fuel</button>
+                    <button id="example-direct" type="button">Try direct trip</button>
+                </div>
+            </form>
+            <p id="progress" class="progress" role="status">Ready to plan</p>
+        </section>
+        <section class="workspace" aria-labelledby="map-title">
+            <div class="workspace-header">
+                <h2 id="map-title">Route map</h2>
+                <div class="map-toolbar">
+                    <span id="route-caption">Vienna to Graz</span>
+                    <button id="all-stations" class="stations-toggle" type="button" aria-pressed="false" disabled>All stations</button>
+                </div>
+            </div>
+            <p id="station-status" class="station-status" role="status"></p>
+            <div class="map-frame">
+                <div id="map" aria-label="Interactive trip map"></div>
+                <p id="map-notice" class="map-notice" hidden></p>
+                <div class="legend" aria-label="Map legend">
+                    <span><i class="legend-route"></i> Route</span>
+                    <span><i class="legend-fuel"></i> Fuel stop</span>
+                    <span id="catalogue-legend" hidden><i class="legend-station"></i> Catalogue station</span>
+                    <span id="alternate-legend" hidden><i class="legend-alternate"></i> Runner-up</span>
+                </div>
+                <button id="fit-route" class="fit-route" type="button" title="Fit route to map" disabled>Fit route</button>
+            </div>
+            <section id="result" class="result" aria-labelledby="result-title" hidden>
+                <div class="result-head">
+                    <div><p id="outcome" class="outcome"></p><h2 id="result-title"></h2></div>
+                    <a id="open-maps" target="_blank" rel="noopener noreferrer" hidden>Open in Maps</a>
+                </div>
+                <dl id="metrics" class="metrics"></dl>
+                <p id="price-note" class="price-note" hidden></p>
+                <p id="runner-up" class="runner-up" hidden></p>
+                <p id="coverage" class="coverage" hidden></p>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

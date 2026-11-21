@@ -5,4 +5,5 @@ COPY requirements-jobs.lock ./
 RUN pip install --no-cache-dir -r requirements-jobs.lock \
     && useradd --uid 10001 --create-home jobs
 COPY fuel_stop ./fuel_stop
+COPY web ./web
 USER 10001

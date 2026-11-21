@@ -44,6 +44,12 @@ class Station(Model):
     source: str = "OpenStreetMap"
 
 
+class StationCatalogue(Model):
+    source: str
+    data_timestamp: datetime
+    stations: list[Station]
+
+
 class Route(Model):
     distance_km: Decimal = Field(ge=0)
     duration_s: Decimal = Field(ge=0)

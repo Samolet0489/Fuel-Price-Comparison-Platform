@@ -53,7 +53,6 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
 
     feasible = []
     compared = 0
-    # The catalog does not truncate: exceeding its capacity is an explicit error.
     for station in stations.candidates(trip, direct):
         if trip.fuel_type not in station.fuel_types or station.opening_hours != "24/7":
             continue

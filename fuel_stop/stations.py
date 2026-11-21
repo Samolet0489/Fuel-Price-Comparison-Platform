@@ -38,8 +38,8 @@ class LocalStations:
     source = SOURCE
     data_timestamp: datetime | None = None
 
-    def __init__(self, path: str, boundary: AustriaBoundary, max_candidates=200):
-        self.path, self.boundary, self.max_candidates = path, boundary, max_candidates
+    def __init__(self, path: str, boundary: AustriaBoundary):
+        self.path, self.boundary = path, boundary
 
     def load(self) -> list[Station]:
         try:
@@ -68,6 +68,4 @@ class LocalStations:
         matches = [s for s in self.load() if trip.fuel_type in s.fuel_types
                    and self.boundary.covers_point(s.point)
                    and distance_km(trip.origin, s.point) <= radius]
-        if len(matches) > self.max_candidates:
-            raise DependencyUnavailable("station_capacity", "too_many_candidates")
         return sorted(matches, key=lambda s: s.id)

@@ -68,16 +68,29 @@ def test_empty_valid_catalogue_is_not_provider_failure(tmp_path):
         Trip.model_validate(TRIP), None) == []
 
 
-def test_local_capacity_not_silently_truncated(tmp_path):
-    path = catalogue(tmp_path)
-    source = LocalStations(str(path), AustriaBoundary(box(9, 46, 18, 50)), max_candidates=0)
-    with pytest.raises(DependencyUnavailable, match="station_capacity"):
-        source.candidates(Trip.model_validate(TRIP), None)
+def test_list_stations_returns_catalogue_without_trip_filter(tmp_path, monkeypatch):
+    rows = [
+        from_tags("node/1", TAGS, Point(lon=16, lat=48)).model_dump(mode="json"),
+        from_tags("node/2", {**TAGS, "fuel:diesel": "no", "fuel:octane_95": "yes"},
+                  Point(lon=10, lat=47)).model_dump(mode="json"),
+    ]
+    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(catalogue(tmp_path, rows)))
+    with TestClient(app) as http:
+        response = http.get("/stations")
+    assert response.status_code == 200
+    assert response.json() == {
+        "source": SOURCE, "data_timestamp": "2026-11-01T00:00:00Z", "stations": rows,
+    }
 
 
-def test_default_local_station_plan_reaches_price_dependency(tmp_path, monkeypatch):
+@pytest.mark.parametrize("station_count", [1, 201])
+def test_default_local_station_plan_compares_all_candidates(tmp_path, monkeypatch, station_count):
+    stations = [
+        from_tags(f"node/{ident}", TAGS, Point(lon=16, lat=48)).model_dump(mode="json")
+        for ident in range(1, station_count + 1)
+    ]
     monkeypatch.setenv("STATION_SOURCE", "local")
-    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(catalogue(tmp_path)))
+    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(catalogue(tmp_path, stations)))
     for name in ("PRICE_FEED_URL", "PRICE_PERMISSION_REFERENCE", "PRICE_SOURCE"):
         monkeypatch.delenv(name, raising=False)
     def handler(request):
@@ -94,7 +107,7 @@ def test_default_local_station_plan_reaches_price_dependency(tmp_path, monkeypat
         assert payload["route"]["distance_km"] == "200"
         assert payload["litres_to_buy"] == "7.000"
         assert payload["estimated_cost_eur"] is None
-        assert payload["stations_compared"] == payload["feasible_stations"] == 1
+        assert payload["stations_compared"] == payload["feasible_stations"] == station_count
         assert payload["station_data_timestamp"] == "2026-11-01T00:00:00Z"
         assert payload["station_source"] == SOURCE
 
