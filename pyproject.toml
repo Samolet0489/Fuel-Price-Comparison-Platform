@@ -12,7 +12,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest==9.2.0"]
+dev = [
+    "pytest==9.2.0",
+]
+data = ["osmium==4.3.2"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

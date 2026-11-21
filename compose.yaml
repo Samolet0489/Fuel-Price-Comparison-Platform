@@ -4,6 +4,14 @@ name: fuel-stop
 x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend@sha256:855614a38f464b0558a2ad6eaa7cb8c139f39887da9b38b485ce453c6e6e6124
 
 services:
+  station-prepare:
+    build:
+      context: .
+      dockerfile: Dockerfile.data
+    profiles: [prepare]
+    volumes:
+      - ./data/osrm:/data
+    command: [--pbf, /data/austria.osm.pbf, --boundary, /data/austria-boundary.geojson, --output, /data/stations.json]
   # Same image for preprocessing and serving. Not started by a normal compose up.
   osrm-prepare:
     image: *osrm-image
@@ -27,6 +35,8 @@ services:
     environment:
       OSRM_BASE_URL: http://osrm:5000
       AUSTRIA_BOUNDARY_FILE: /data/austria-boundary.geojson
+      STATION_SOURCE: local
+      STATION_CATALOGUE_FILE: /data/stations.json
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       PRICE_FEED_URL: ${PRICE_FEED_URL:-}
       PRICE_SOURCE: ${PRICE_SOURCE:-}

@@ -11,6 +11,7 @@ from .models import Plan, Trip
 from .boundary import AustriaBoundary
 from .planner import BorderRestrictedRoute, DependencyUnavailable, NoRoute, OutsideAustria, plan
 from .providers import AuthorisedPrices, OSRMRouter, OSMStations
+from .stations import LocalStations
 
 PLANS = Counter("fuel_plans_total", "Planning outcomes", ["status"])
 LATENCY = Histogram("fuel_plan_seconds", "Complete planning latency")
@@ -37,6 +38,15 @@ def boundary():
     return load_boundary(os.getenv("AUSTRIA_BOUNDARY_FILE", "data/osrm/austria-boundary.geojson"))
 
 
+def station_provider(client):
+    source = os.getenv("STATION_SOURCE", "local")
+    if source == "local":
+        return LocalStations(os.getenv("STATION_CATALOGUE_FILE", "data/osrm/stations.json"), boundary())
+    if source == "overpass":
+        return OSMStations(client, os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter"))
+    raise DependencyUnavailable("stations", "invalid_station_source")
+
+
 @app.get("/health/live")
 def live():
     return {"status": "ok", "worker_id": socket.gethostname(), "node": os.getenv("NODE_NAME", "local")}
@@ -53,6 +63,7 @@ def ready(response: Response):
         response.status_code = 503
     return {**live(), "status": "ok" if boundary_ready else "not_ready",
             "routing_provider": "osrm", "boundary_ready": boundary_ready,
+            "station_source": os.getenv("STATION_SOURCE", "local"),
             "routing_url": os.getenv("OSRM_BASE_URL", "http://127.0.0.1:5000"),
             "prices_configured": all(os.getenv(k) for k in
                                      ("PRICE_FEED_URL", "PRICE_PERMISSION_REFERENCE", "PRICE_SOURCE"))}
@@ -66,13 +77,13 @@ def metrics():
 @app.post("/plan", response_model=Plan)
 def create_plan(trip: Trip):
     client = app.state.client
-    stations = OSMStations(client, os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter"))
     prices = AuthorisedPrices(client, os.getenv("PRICE_FEED_URL", ""),
                               os.getenv("PRICE_PERMISSION_REFERENCE", ""),
                               os.getenv("PRICE_SOURCE", ""), os.getenv("PRICE_FEED_TOKEN", ""))
     with LATENCY.time():
         try:
             router = OSRMRouter(client, os.getenv("OSRM_BASE_URL", "http://127.0.0.1:5000"), boundary())
+            stations = station_provider(client)
             result = plan(trip, router, stations, prices)
             PLANS.labels(result.status).inc()
             return result
@@ -89,4 +100,7 @@ def create_plan(trip: Trip):
         except DependencyUnavailable as exc:
             status = f"{exc.dependency}_unavailable"
             PLANS.labels(status).inc()
-            raise HTTPException(503, detail={"status": status}) from None
+            detail = {"status": status}
+            if exc.reason:
+                detail["reason"] = exc.reason
+            raise HTTPException(503, detail=detail) from None

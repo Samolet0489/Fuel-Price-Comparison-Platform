@@ -1,6 +1,6 @@
 {
-  "origin": {"lon": 16.3738, "lat": 48.2082},
-  "destination": {"lon": 15.4395, "lat": 47.0707},
+  "origin": {"lon": 16.3692842, "lat": 48.2024484},
+  "destination": {"lon": 15.4392, "lat": 47.0667},
   "fuel_type": "diesel",
   "current_fuel_l": 8,
   "tank_capacity_l": 40,

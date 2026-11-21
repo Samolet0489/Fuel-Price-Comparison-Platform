@@ -132,6 +132,8 @@ def main():
     if (digest(DATA / "austria.osm.pbf") != manifest["pbf_sha256"] or
         digest(DATA / "austria-boundary.geojson") != manifest["boundary_geojson_sha256"]):
         raise ValueError("Data changed since download; refusing mismatched inputs")
+    from scripts.prepare_stations import prepare
+    prepare()
     config = subprocess.run(["docker", "compose", "config", "--format", "json"], cwd=ROOT,
                             check=True, capture_output=True, text=True)
     image = json.loads(config.stdout)["services"]["osrm"]["image"]

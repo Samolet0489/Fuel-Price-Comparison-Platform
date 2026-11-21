@@ -7,8 +7,9 @@ from .models import Plan, Point, Quote, Route, Station, Trip
 
 
 class DependencyUnavailable(Exception):
-    def __init__(self, dependency: str):
+    def __init__(self, dependency: str, reason: str | None = None):
         self.dependency = dependency
+        self.reason = reason
         super().__init__(dependency)
 
 
@@ -77,7 +78,9 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
         arrival = remaining + buy - route.leg_distances_km[1] * rate
         feasible.append((station, route, buy, arrival, detour))
 
-    common = dict(mode=mode, stations_compared=compared, feasible_stations=len(feasible))
+    common = dict(mode=mode, stations_compared=compared, feasible_stations=len(feasible),
+                  station_source=getattr(stations, "source", None),
+                  station_data_timestamp=getattr(stations, "data_timestamp", None))
     if not feasible:
         return Plan(status="no_feasible_stop", **common,
                     message="No single stop satisfies reachability, tank, fuel, opening and detour constraints")

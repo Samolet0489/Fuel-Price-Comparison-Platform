@@ -78,6 +78,8 @@ class Plan(Model):
     price_timestamp: datetime | None = None
     price_source: str | None = None
     price_retrieved_at: datetime | None = None
+    station_source: str | None = None
+    station_data_timestamp: datetime | None = None
     stations_compared: int = 0
     feasible_stations: int = 0
     priced_stations: int = 0

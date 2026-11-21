@@ -1,4 +1,33 @@
-# Verification record: local OSRM migration, 21 November 2026
+# Latest verification: station retrieval fix, 21 November 2026
+
+Normal station lookup now uses the existing local Austria PBF rather than public
+Overpass. The previous migration record below is historical; its pending station
+lookup and Vienna-to-Graz checks are superseded by these results.
+
+- Captured the actual Overpass HTTP 502 response: query workers busy and queue full.
+- Prepared a real local catalogue from the full Austria PBF in Linux Docker:
+  2,965 fuel objects, 465 eligible Austrian stations, 3 outside-country exclusions,
+  and 1 invalid/incomplete geometry exclusion. Map time: 2026-11-01T21:21:36Z.
+- Windows blocks the native osmium DLL. The preparation image includes its XML
+  runtime libraries; normal Windows dependencies and the worker do not include it.
+- Rebuilt the actual worker against the existing local OSRM. The direct example
+  returned HTTP 200 `direct` in 0.73 s. The low-fuel example returned HTTP 200
+  `prices_unavailable`, 178 compared stations, 50 feasible stations and zero priced
+  stations in 6.93 s. These are one-run timings, not performance guarantees.
+- The current examples use tested road-accessible Vienna/Graz points. Full-map
+  routing works; the prior unsuccessful sample coordinates have been replaced.
+- Linux Docker suite: 80 passed. Windows suite: 79 passed, 1 native extraction
+  test skipped. One existing Starlette/httpx deprecation warning remains.
+- Catalogue metadata is exposed as station_source/station_data_timestamp when
+  stations are evaluated. Runtime catalogue access makes no external HTTP call.
+- Authorised Austrian prices, two-laptop Kubernetes execution, deployed Grafana
+  and a successful GitHub Actions run remain pending. No commit or push was made.
+
+See [station retrieval](station-retrieval.md) for commands and known source limits.
+
+---
+
+# Earlier record: local OSRM migration, 21 November 2026
 
 ## Verified
 

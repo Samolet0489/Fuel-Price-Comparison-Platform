@@ -52,6 +52,12 @@ after loading; restarting the worker is required after a boundary update.
 
 ## Separate dependencies and consequences
 
+Update: [station retrieval](../station-retrieval.md) now uses a dated catalogue
+from the local Austria PBF by default. The historical Overpass dependency below
+is retained only as an explicitly selected diagnostic mode. Authorised prices
+remain unresolved.
+
+
 Direct trips with sufficient fuel need neither Overpass nor a price feed. A trip
 requiring a stop still needs the existing public Austrian OSM station query and
 authorised current price quotes. Their errors remain separate from routing errors.

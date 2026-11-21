@@ -1,5 +1,6 @@
 """Live adapters. Provider failures never become fake routes or zero prices."""
 import math
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
@@ -14,6 +15,7 @@ from .planner import BorderRestrictedRoute, DependencyUnavailable, NoRoute
 
 LOOKUP_SECONDS = Histogram("fuel_provider_seconds", "Provider request latency", ["provider"])
 LOOKUP_FAILURES = Counter("fuel_provider_failures_total", "Failed provider requests", ["provider"])
+logger = logging.getLogger(__name__)
 
 
 def request(client, provider, method, url, **kwargs):
@@ -22,9 +24,19 @@ def request(client, provider, method, url, **kwargs):
             response = client.request(method, url, **kwargs)
             response.raise_for_status()
             return response.json()
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError) as exc:
         LOOKUP_FAILURES.labels(provider).inc()
-        raise DependencyUnavailable(provider) from None
+        if isinstance(exc, httpx.HTTPStatusError):
+            reason = f"upstream_http_{exc.response.status_code}"
+        elif isinstance(exc, httpx.TimeoutException):
+            reason = "upstream_timeout"
+        elif isinstance(exc, httpx.HTTPError):
+            reason = "upstream_network_error"
+        else:
+            reason = "upstream_invalid_json"
+        # Never log credentials, response bodies or complete provider URLs.
+        logger.warning("%s lookup failed: %s", provider, reason)
+        raise DependencyUnavailable(provider, reason) from None
 
 
 class OSRMRouter:
@@ -101,7 +113,7 @@ class OSMStations:
         data = request(self.client, "stations", "GET", self.url, params={"data": query},
                        headers={"User-Agent": "FuelStopPlanner/0.1 (university project)"})
         if not isinstance(data, dict) or "remark" in data or not isinstance(data.get("elements"), list):
-            raise DependencyUnavailable("stations")
+            raise DependencyUnavailable("stations", "upstream_incomplete_response")
         return data["elements"]
 
     def candidates(self, trip: Trip, direct: Route) -> list[Station]:

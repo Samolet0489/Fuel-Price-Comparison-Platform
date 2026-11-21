@@ -3,3 +3,7 @@
 !fuel_stop/*.py
 !requirements.lock
 !Dockerfile
+!Dockerfile.data
+!requirements-data.lock
+!scripts/
+!scripts/*.py

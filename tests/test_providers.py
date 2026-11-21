@@ -110,6 +110,7 @@ def test_api_routing_unavailable(monkeypatch):
 
 def test_api_complete_plan_with_saved_http_contracts(monkeypatch):
     from datetime import datetime, timezone
+    monkeypatch.setenv("STATION_SOURCE", "overpass")
     monkeypatch.setenv("OVERPASS_URL", "https://overpass.test")
     monkeypatch.setenv("PRICE_FEED_URL", "https://prices.test")
     monkeypatch.setenv("PRICE_SOURCE", "Synthetic contract feed")

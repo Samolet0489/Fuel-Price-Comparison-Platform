@@ -50,6 +50,10 @@ spec:
               value: http://osrm:5000
             - name: AUSTRIA_BOUNDARY_FILE
               value: /data/austria-boundary.geojson
+            - name: STATION_SOURCE
+              value: local
+            - name: STATION_CATALOGUE_FILE
+              value: /data/stations.json
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

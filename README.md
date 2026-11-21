@@ -17,8 +17,8 @@ uv run --frozen pytest -q
 ```
 
 Prepare the road data once. This downloads a dated Austria snapshot (roughly
-0.8 GB), downloads the OSM country boundary, verifies the road checksum, and runs
-OSRM extraction, partitioning and customization. Allow substantial disk/RAM and
+0.8 GB), downloads the OSM country boundary, verifies the road checksum, extracts
+a local station catalogue, and runs OSRM extraction, partitioning and customization. Allow substantial disk/RAM and
 time; the full-country resource requirements have not been measured here.
 
 ```powershell
@@ -32,8 +32,8 @@ uv run --frozen python -m scripts.check_local_route --wait-seconds 120
 The route check sends a real Vienna-to-Graz trip with enough fuel for a direct
 journey. Expected: `status=direct`, `mode=live`, nonzero road distance and duration,
 GeoJSON geometry, and `stations_compared=0`. It requires neither Overpass nor
-prices. **The full-country Vienna-to-Graz check remains to be run after preparing
-the full map; the verified real smoke test used a small Vienna street extract.**
+prices. The updated example coordinates have been verified on the full local map: a real
+Vienna-to-Graz route of 192.4779 km. See the station verification below for low-fuel trips.
 
 Open [API documentation](http://127.0.0.1:8000/docs). Test manually:
 
@@ -51,9 +51,20 @@ $trip = Get-Content examples/trip.json -Raw
 Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -ContentType "application/json" -Body $trip
 ```
 
-This can return `stations_unavailable` if Overpass fails, or `prices_unavailable`
-when feasible stations exist without authorised quotes. Local OSRM does not fix
-these independent dependencies. No price supplier is configured by default.
+Normal station lookup now uses a local OSM catalogue, avoiding public Overpass
+capacity failures. The verified low-fuel example returns `prices_unavailable`
+after comparing 178 stations and finding 50 feasible stops. An authorised price
+supplier is still required; no price supplier is configured by default.
+
+For an existing map installation, build the catalogue without rebuilding OSRM:
+
+```powershell
+uv run --frozen python -m scripts.prepare_stations
+docker compose up -d --build worker
+```
+
+[Station retrieval diagnosis and fix](docs/station-retrieval.md) explains the source,
+map timestamp, eligibility rules and Docker-based preparation.
 
 ```powershell
 docker compose logs --tail 100 osrm worker
@@ -79,10 +90,10 @@ Production never falls back to replay routes or a public demo routing server.
 |---|---|
 | Fuel calculation, feasibility and cost ranking | Preserved; saved regression tests |
 | OSRM adapter | Implemented; distances, durations, legs, full GeoJSON and errors tested |
-| Real local routing | Verified through Compose on a small Vienna OSM extract, including a two-leg route |
+| Real local routing | Verified small-area two-leg routing and full-map Vienna-to-Graz routing |
 | Austria-only policy | Local OSM boundary validation of inputs, snapped waypoints and the entire route line |
-| Austria-wide map preparation | Reproducible script and pinned image; full-country processing not run here |
-| Station lookup | Existing real Overpass adapter; external availability still unresolved |
+| Austria-wide map preparation | Existing full map and real route verified; station extraction now tested on that PBF |
+| Station lookup | Real local OSM catalogue; 465 eligible Austrian stations, no runtime HTTP lookup |
 | Current Austrian prices | Authorised source still required; no private API scraping |
 | Monitoring | Existing Prometheus metrics and Grafana queries retained |
 | Kubernetes | Worker-only integration template; cluster OSRM/data provisioning still required |
@@ -95,6 +106,7 @@ Production never falls back to replay routes or a public demo routing server.
 - [Austria-only routing decision](docs/adr/0002-local-osrm.md): why a country extract alone is insufficient.
 - [Authorised price dependency](docs/price-source.md): feed contract and access requirement.
 - [Verification record](docs/verification.md): measured results and untested items.
+- [Station retrieval](docs/station-retrieval.md): local catalogue, source date and known limits.
 
 Normal routing is OSRM's fastest car route. The worker rejects a returned route
 that leaves Austria; OSRM cannot request an Austria-only alternative. Near borders
@@ -106,10 +118,12 @@ settings are no longer used. Compose fixes the internal URL to `http://osrm:5000
 local Python defaults to `http://127.0.0.1:5000`. Keep credentials in ignored `.env`.
 
 Dependencies are locked in `uv.lock`; Docker uses the runtime export
-`requirements.lock`. After changing dependencies, run `uv lock`, then:
+`requirements.lock`. Data preparation has its own `requirements-data.lock` and
+Linux Docker image. After changing dependencies, run `uv lock`, then:
 
 ```powershell
 uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt --output-file requirements.lock
+uv export --frozen --no-dev --group data --no-hashes --no-emit-project --format requirements-txt --output-file requirements-data.lock
 ```
 
 Data: [OpenStreetMap contributors, ODbL](https://www.openstreetmap.org/copyright).

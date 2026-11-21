@@ -78,6 +78,12 @@ service runs only when explicitly selected and is not a persistent third worker.
 The route-check command retries actual planning requests for startup readiness;
 no fixed sleep or fake route substitutes for a successful response.
 
+Normal station retrieval is now local. Before testing a low-fuel trip on an existing
+installation, run `uv run --frozen python -m scripts.prepare_stations`, then
+`docker compose up -d --build worker`. This uses a Linux preparation container to
+avoid Windows native DLL restrictions. Full map preparation includes this step.
+See [station retrieval](station-retrieval.md) for complete details.
+
 The direct example has 35 L in a 40 L tank, consumption 6 L/100 km and a 3 L
 arrival reserve. Once the Austria graph is ready it should return `direct`, real
 geometry, litres used through the arrival-fuel calculation, and zero stations
@@ -95,7 +101,7 @@ The raw OSRM endpoint can be inspected independently. This bypasses the worker's
 country policy; accepted application routes must always go through `/plan`:
 
 ```powershell
-$url = 'http://127.0.0.1:5000/route/v1/driving/16.3738,48.2082;15.4395,47.0707?overview=full&geometries=geojson&steps=false&radiuses=100;100'
+$url = 'http://127.0.0.1:5000/route/v1/driving/16.3692842,48.2024484;15.4392,47.0667?overview=full&geometries=geojson&steps=false&radiuses=100;100'
 Invoke-RestMethod $url | ConvertTo-Json -Depth 20
 ```
 
@@ -107,7 +113,7 @@ $trip = Get-Content examples/trip.json -Raw
 Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -ContentType "application/json" -Body $trip
 ```
 
-Station failures still return `stations_unavailable`. If feasible candidates exist
+Missing/invalid local station catalogues return `stations_unavailable` with a safe reason. If feasible candidates exist
 but no authorised fresh quotes are available, expect `prices_unavailable`. A trip
 with no feasible returned stop produces `no_feasible_stop`. None of these outcomes
 is replaced by synthetic routes. The station-only diagnostic remains:
@@ -116,7 +122,8 @@ is replaced by synthetic routes. The station-only diagnostic remains:
 uv run --frozen python -m scripts.check_live_stations
 ```
 
-This now validates endpoints using the local boundary, then queries Overpass.
+This validates endpoints and reads the local station catalogue. Add
+`--source overpass` only to explicitly diagnose the optional online source.
 
 ## Local Python instead of a worker container
 
@@ -155,7 +162,7 @@ docker compose down
 | `outside_austria` | An input endpoint is outside the saved country boundary |
 | `border_restricted_route` | The returned direct road geometry leaves Austria; no foreign transit is accepted |
 | `no_route` | OSRM found no route or no drivable segment within 100 m of an endpoint |
-| `stations_unavailable` | Separate Overpass problem; local routing itself can still work |
+| `stations_unavailable` | Check the reason: local catalogue missing/invalid, or an explicitly selected online provider failure |
 | `prices_unavailable` | Feasible stations lack usable authorised price quotes |
 
 `/health/live` checks the process. `/health/ready` validates the local boundary
@@ -172,7 +179,7 @@ worker and checks container liveness. It does not download the country map.
 
 `deploy/kubernetes/worker.yaml` is an updated **worker-only integration template**.
 It expects an OSRM Service named `osrm` and a `fuel-stop-routing-data` PVC with the
-boundary accessible to both worker replicas. Neither resource is provisioned by
+boundary and `stations.json` accessible to both worker replicas. Neither resource is provisioned by
 this change. Two-laptop Kubernetes execution remains unverified. Compose is the
 runnable local setup; building the rest of the platform is outside this change.
 

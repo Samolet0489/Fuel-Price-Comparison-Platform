@@ -14,7 +14,7 @@ flowchart LR
     HTTP --> P[Calculation planner]
     P --> OSRM[Local OSRM Docker service]
     P --> BORDER[Local Austrian OSM boundary]
-    P --> OSM[Austrian OSM stations via Overpass]
+    P --> OSM[Local Austrian OSM station catalogue]
     P --> PRICE[Authorised price feed: dependency pending]
     PROM[Future Prometheus] --> METRICS[Worker /metrics]
     GRAF[Future Grafana] --> PROM
@@ -24,7 +24,8 @@ flowchart LR
 |---|---|
 | `fuel_stop/models.py` | Inputs, station, route, quote and result models; reject invalid or unknown fields |
 | `fuel_stop/planner.py` | Provider-independent feasibility and ranking logic |
-| `fuel_stop/providers.py` | Local OSRM, Overpass and authorised-feed HTTP adapters |
+| `fuel_stop/providers.py` | Local OSRM, optional Overpass and authorised-feed HTTP adapters |
+| `fuel_stop/stations.py` | Default local station retrieval, range/fuel/country filtering |
 | `fuel_stop/boundary.py` | Local Austrian point and full-route geometry checks |
 | `scripts/prepare_osrm.py` | Verified downloads, country assembly and Docker MLD preparation |
 | `fuel_stop/app.py` | `/plan`, health endpoints, metrics and dependency error mapping |
@@ -46,7 +47,9 @@ OSRM adapter also checks every snapped waypoint and the entire full-resolution
 route LineString against that polygon. A country extract may contain foreign
 roads: downloading Austria alone is not the border restriction. See
 [ADR 0002](adr/0002-local-osrm.md) for conservative near-border behavior.
-The model assumes a constant consumption rate on every road segment.
+The model assumes a constant consumption rate on every road segment. Normal
+station lookup uses the dated local PBF catalogue, not an online Overpass call.
+[Station retrieval](station-retrieval.md) documents preparation and source freshness.
 
 ## Routing adapter contract
 
@@ -126,7 +129,7 @@ can explicitly convert them to numbers for display. Coordinates are numeric.
 | 422 | validation details | Invalid input |
 | 503 | `routing_unavailable` | Local OSRM call failed or returned invalid data |
 | 503 | `boundary_unavailable` | Local country boundary missing or invalid; never bypass the check |
-| 503 | `stations_unavailable` | Station query failed or returned incomplete data |
+| 503 | `stations_unavailable` | Local catalogue missing/invalid, or explicit online station query failed |
 | 503 | `station_capacity_unavailable` | More than 200 candidates; nothing silently truncated |
 
 Business outcomes are at the JSON top level. HTTP errors use FastAPI's `detail`
@@ -155,7 +158,7 @@ authorised feed must map its station IDs correctly and resolve duplicates.
 Requests use bounded HTTP timeouts but evaluate stations sequentially, up to 200.
 There is no whole-job deadline, routing cache, rate-limit scheduler or durable queue
 yet. Local routing removes hosted-routing quotas but still uses CPU and memory;
-Overpass and price-source quotas remain. Keep this worker private and test a
+Optional Overpass diagnostics and price-source quotas remain. Keep this worker private and test a
 small case first. Before general live use, measure call counts, add caching/batching
 and define a whole-job deadline with the future API.
 
