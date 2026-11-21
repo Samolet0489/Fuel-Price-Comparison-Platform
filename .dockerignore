@@ -4,6 +4,8 @@
 !requirements.lock
 !Dockerfile
 !Dockerfile.data
+!Dockerfile.jobs
+!requirements-jobs.lock
 !requirements-data.lock
 !scripts/
 !scripts/*.py

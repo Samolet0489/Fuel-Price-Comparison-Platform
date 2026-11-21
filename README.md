@@ -1,9 +1,9 @@
 # Fuel Price Comparison Platform
 
-This repository implements the first component: an **Austrian single-stop fuel
-planner**. It uses **local OSRM in Docker** for real road routing. No routing
-account or API key is required. Forecasting, the public backend, map UI, carbon
-controller and database remain outside this component.
+This repository implements an **Austrian single-stop fuel planner** and a public
+trip API backed by **PostgreSQL**. The controller dispatches trip jobs to the
+planner, which uses **local OSRM in Docker** for real road routing. No routing
+account or API key is required. The map UI and carbon-aware dispatch are future work.
 
 ## Run it on Windows
 
@@ -25,7 +25,7 @@ time; the full-country resource requirements have not been measured here.
 uv run --frozen python -m scripts.prepare_osrm
 if ($LASTEXITCODE -ne 0) { throw "Data preparation failed; do not start the stack" }
 
-docker compose up --build -d
+docker compose up --build -d --wait --wait-timeout 120
 uv run --frozen python -m scripts.check_local_route --wait-seconds 120
 ```
 
@@ -43,6 +43,29 @@ Invoke-RestMethod http://127.0.0.1:8000/health/ready
 $trip = Get-Content examples/direct-trip.json -Raw
 Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -ContentType "application/json" -Body $trip
 ```
+
+### Submit trips through the public API
+
+Open [public API documentation](http://127.0.0.1:8001/docs). A
+`POST /trip-plans` accepts the same inputs as the worker and returns HTTP
+202, a job ID, and a `Location` header. A `GET /trip-plans/{id}` returns
+`QUEUED`, `RUNNING`, `SUCCEEDED`, or `FAILED`, with timestamps and the
+finished result or error. `prices_unavailable` is a successful planning
+outcome when the worker found a feasible stop.
+
+```powershell
+uv run --frozen python -m scripts.check_trip_jobs
+```
+
+This sends both live example trips through the API and controller. Run it with
+the Austrian map and station catalogue prepared and no price feed configured.
+The low-fuel result should include the Shell fallback with the saved catalogue.
+
+The Compose stack uses one worker and one attempt per job. If a controller stops
+during dispatch, a running job becomes failed after its attempt expires and the
+controller can reach PostgreSQL again. PostgreSQL uses a named volume that
+persists across `docker compose down`. The API listens on localhost port 8001;
+the worker remains on port 8000 and PostgreSQL has no published host port.
 
 A low-fuel trip tests the additional station/price dependencies:
 

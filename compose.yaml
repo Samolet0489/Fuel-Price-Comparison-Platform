@@ -2,6 +2,14 @@ name: fuel-stop
 
 # OSRM v5.27.1, pinned to the verified image digest for reproducible graph files.
 x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend@sha256:855614a38f464b0558a2ad6eaa7cb8c139f39887da9b38b485ce453c6e6e6124
+x-jobs-build: &jobs-build
+  context: .
+  dockerfile: Dockerfile.jobs
+x-jobs-environment: &jobs-environment
+  PGHOST: postgres
+  PGDATABASE: fuel_stop
+  PGUSER: fuel_stop
+  PGPASSWORD: ${JOB_DB_PASSWORD:-fuel-stop-local}
 
 services:
   station-prepare:
@@ -47,3 +55,49 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     read_only: true
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fuel_stop
+      POSTGRES_USER: fuel_stop
+      POSTGRES_PASSWORD: ${JOB_DB_PASSWORD:-fuel-stop-local}
+    volumes:
+      - trip-jobs:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "fuel_stop", "-d", "fuel_stop"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build: *jobs-build
+    command: ["python", "-m", "uvicorn", "fuel_stop.public_api:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment: *jobs-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    restart: unless-stopped
+  controller:
+    build: *jobs-build
+    command: ["python", "-m", "fuel_stop.controller"]
+    environment:
+      <<: *jobs-environment
+      WORKER_URL: http://worker:8000
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    read_only: true
+    restart: unless-stopped
+
+volumes:
+  trip-jobs:
