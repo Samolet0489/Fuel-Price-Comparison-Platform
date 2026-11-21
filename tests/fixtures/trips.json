@@ -1,0 +1,51 @@
+{
+  "description": "Synthetic saved calculation cases; NOT real routes, station data, or current prices. Distances are km; fuel is litres.",
+  "trip": {
+    "origin": {"lon": 16.3738, "lat": 48.2082},
+    "destination": {"lon": 15.4395, "lat": 47.0707},
+    "fuel_type": "diesel", "current_fuel_l": "8", "tank_capacity_l": "40",
+    "consumption_l_per_100km": "6", "arrival_reserve_l": "3", "minimum_buffer_l": "1"
+  },
+  "cases": [
+    {"name": "direct_exact_reserve", "trip": {"current_fuel_l": "15"}, "stations": [], "expected": "direct"},
+    {"name": "detour_cost_beats_pump_price", "stations": [
+      {"id": "cheap-pump", "legs": [60, 170], "price": "1.50"},
+      {"id": "best-cost", "legs": [80, 120], "price": "1.60"}
+    ], "expected": "stop", "winner": "best-cost", "litres": "7.000", "cost": "11.20"},
+    {"name": "unreachable_cheap_station", "stations": [
+      {"id": "unreachable", "legs": [120, 80], "price": "1.00"},
+      {"id": "reachable", "legs": [100, 100], "price": "1.70"}
+    ], "expected": "stop", "winner": "reachable"},
+    {"name": "exact_buffer", "trip": {"current_fuel_l": "7"}, "stations": [
+      {"id": "boundary", "legs": [100, 100], "price": "1.60"}
+    ], "expected": "stop", "winner": "boundary"},
+    {"name": "second_leg_exceeds_tank", "trip": {"tank_capacity_l": "10"}, "stations": [
+      {"id": "too-early", "legs": [50, 150], "price": "1.20"}
+    ], "expected": "no_feasible_stop"},
+    {"name": "detour_limit", "trip": {"max_detour_km": "5"}, "stations": [
+      {"id": "too-far", "legs": [60, 150], "price": "1.20"}
+    ], "expected": "no_feasible_stop"},
+    {"name": "exact_detour_limit", "trip": {"max_detour_km": "10"}, "stations": [
+      {"id": "boundary", "legs": [60, 150], "price": "1.20"}
+    ], "expected": "stop", "winner": "boundary"},
+    {"name": "prices_missing", "stations": [{"id": "no-price", "legs": [80, 120]}], "expected": "prices_unavailable"},
+    {"name": "stale_price", "stations": [{"id": "old-price", "legs": [80, 120], "price": "1.40", "age_s": 3601}], "expected": "prices_unavailable"},
+    {"name": "future_price", "stations": [{"id": "future", "legs": [80, 120], "price": "1.40", "age_s": -1}], "expected": "prices_unavailable"},
+    {"name": "tie_prefers_fuel", "stations": [
+      {"id": "more-fuel", "legs": [80, 130], "price": "1.40", "duration_s": 500},
+      {"id": "less-fuel", "legs": [80, 120], "price": "1.52", "duration_s": 1000}
+    ], "expected": "stop", "winner": "less-fuel"},
+    {"name": "tie_prefers_time", "stations": [
+      {"id": "slow", "legs": [80, 120], "price": "1.60", "duration_s": 1000},
+      {"id": "fast", "legs": [80, 120], "price": "1.60", "duration_s": 500}
+    ], "expected": "stop", "winner": "fast"},
+    {"name": "partial_prices", "stations": [
+      {"id": "known", "legs": [80, 120], "price": "1.60"},
+      {"id": "unknown", "legs": [90, 110]}
+    ], "expected": "stop", "winner": "known", "complete": false},
+    {"name": "wrong_fuel", "stations": [{"id": "petrol-only", "legs": [80, 120], "price": "1.20", "fuel": "petrol95"}], "expected": "no_feasible_stop"},
+    {"name": "closed_or_unknown_hours", "stations": [{"id": "closed", "legs": [80, 120], "price": "1.20", "hours": "Mo-Fr 09:00-17:00"}], "expected": "no_feasible_stop"},
+    {"name": "round_purchase_up", "stations": [{"id": "fraction", "legs": [80, 120.001], "price": "1.60"}], "expected": "stop", "winner": "fraction", "litres": "7.001"},
+    {"name": "no_driving_route_to_station", "stations": [{"id": "island", "legs": [80, 120], "price": "1.20", "no_route": true}], "expected": "no_feasible_stop"}
+  ]
+}

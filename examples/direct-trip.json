@@ -1,0 +1,11 @@
+{
+  "origin": {"lon": 16.3738, "lat": 48.2082},
+  "destination": {"lon": 15.4395, "lat": 47.0707},
+  "fuel_type": "diesel",
+  "current_fuel_l": 35,
+  "tank_capacity_l": 40,
+  "consumption_l_per_100km": 6,
+  "arrival_reserve_l": 3,
+  "minimum_buffer_l": 1,
+  "max_detour_km": 15
+}

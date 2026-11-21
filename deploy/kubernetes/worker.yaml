@@ -1,0 +1,99 @@
+# Worker-only integration template. Before applying, provide an OSRM Service
+# named osrm and a PVC fuel-stop-routing-data containing austria-boundary.geojson.
+# Compose is the supported local setup; these cluster dependencies are not created here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fuel-stop-worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: fuel-stop-worker
+  template:
+    metadata:
+      labels:
+        app: fuel-stop-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: fuel-stop-worker
+              topologyKey: kubernetes.io/hostname
+      automountServiceAccountToken: false
+      containers:
+        - name: worker
+          image: fuel-stop-worker:0.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: fuel-stop-provider-secrets
+                optional: true
+          env:
+            - name: OSRM_BASE_URL
+              value: http://osrm:5000
+            - name: AUSTRIA_BOUNDARY_FILE
+              value: /data/austria-boundary.geojson
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: routing-data
+              mountPath: /data
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: routing-data
+          persistentVolumeClaim:
+            claimName: fuel-stop-routing-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fuel-stop-worker
+spec:
+  selector:
+    app: fuel-stop-worker
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

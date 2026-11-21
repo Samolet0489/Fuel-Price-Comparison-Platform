@@ -1,0 +1,19 @@
+[project]
+name = "fuel-stop-worker"
+version = "0.2.0"
+description = "Single-stop Austrian trip planning worker"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.165.0",
+  "uvicorn==0.54.0",
+  "httpx==0.28.1",
+  "prometheus-client==0.26.0",
+  "shapely==2.1.2",
+]
+
+[dependency-groups]
+dev = ["pytest==9.2.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

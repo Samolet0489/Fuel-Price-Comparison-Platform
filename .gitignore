@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+*.egg-info/
+.uv-cache/
+data/
+*.osm
+*.osm.pbf
+*.osrm*
+*.pbf.md5
+*.tar

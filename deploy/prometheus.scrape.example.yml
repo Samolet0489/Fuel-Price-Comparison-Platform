@@ -1,0 +1,18 @@
+# Merge this job into an existing Prometheus scrape_configs list.
+# Inside Kubernetes, each pod must be scraped separately. Service discovery
+# avoids hiding one worker's metrics behind the load-balanced Service.
+scrape_configs:
+  - job_name: fuel-stop-workers
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: fuel-stop-worker
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        action: keep
+        regex: http
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod

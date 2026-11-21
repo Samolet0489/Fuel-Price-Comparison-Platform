@@ -1,0 +1,25 @@
+name: Fuel-stop worker
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - run: uv run --frozen pytest -q
+      - run: docker compose config --quiet
+      - name: Verify Docker dependency export
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt --output-file /tmp/requirements.lock
+          diff requirements.lock /tmp/requirements.lock --ignore-matching-lines='^#'
+      - run: docker build -t fuel-stop-worker:ci .
+      - name: Container health smoke test
+        run: |
+          docker run -d --name fuel-stop-ci -p 8000:8000 fuel-stop-worker:ci
+          curl --retry 15 --retry-connrefused --retry-delay 1 --fail http://localhost:8000/health/live
+          docker rm -f fuel-stop-ci

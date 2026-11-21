@@ -1,0 +1,136 @@
+{
+  "description": "Real local OSRM response from a small OSM Vienna street extract; saved for offline regression. No station or price data.",
+  "captured_at": "2026-11-21T14:10:47.044326+00:00",
+  "map_source": "https://api.openstreetmap.org/api/0.6/map?bbox=16.365,48.201,16.375,48.205",
+  "osrm_version": "v5.27.1",
+  "attribution": "OSRM | OpenStreetMap contributors, ODbL: https://www.openstreetmap.org/copyright",
+  "response": {
+    "code": "Ok",
+    "routes": [
+      {
+        "geometry": {
+          "coordinates": [
+            [
+              16.369284,
+              48.202448
+            ],
+            [
+              16.369284,
+              48.202448
+            ],
+            [
+              16.368972,
+              48.202518
+            ],
+            [
+              16.368725,
+              48.202573
+            ],
+            [
+              16.368416,
+              48.202643
+            ],
+            [
+              16.368289,
+              48.202671
+            ],
+            [
+              16.368289,
+              48.202671
+            ],
+            [
+              16.368236,
+              48.202683
+            ],
+            [
+              16.36815,
+              48.202702
+            ],
+            [
+              16.368098,
+              48.202714
+            ],
+            [
+              16.367991,
+              48.202734
+            ],
+            [
+              16.367883,
+              48.202752
+            ],
+            [
+              16.367853,
+              48.202756
+            ],
+            [
+              16.367756,
+              48.202769
+            ],
+            [
+              16.367673,
+              48.202784
+            ],
+            [
+              16.366219,
+              48.20311
+            ],
+            [
+              16.365837,
+              48.203196
+            ]
+          ],
+          "type": "LineString"
+        },
+        "legs": [
+          {
+            "steps": [],
+            "summary": "",
+            "weight": 7,
+            "duration": 7,
+            "distance": 78
+          },
+          {
+            "steps": [],
+            "summary": "",
+            "weight": 19.3,
+            "duration": 19.3,
+            "distance": 191.4
+          }
+        ],
+        "weight_name": "routability",
+        "weight": 26.3,
+        "duration": 26.3,
+        "distance": 269.4
+      }
+    ],
+    "waypoints": [
+      {
+        "hint": "fwAAgP___38CAAAAAgAAAAAAAABvAAAAER0gQAAAAAAAAAAAOWrKQgIAAAACAAAAAAAAAG8AAAAPAACAhMb5ANCC3wKExvkA0ILfAgAADxJBHw0J",
+        "distance": 0,
+        "name": "Opernring",
+        "location": [
+          16.369284,
+          48.202448
+        ]
+      },
+      {
+        "hint": "fwAAgP___38JAAAACQAAAD8AAAApAAAA8_seQQAAAACBFY1Cidi5QQkAAAAJAAAAPwAAACkAAAAPAACAocL5AK-D3wKhwvkAr4PfAgQADxJBHw0J",
+        "distance": 0,
+        "name": "Opernring",
+        "location": [
+          16.368289,
+          48.202671
+        ]
+      },
+      {
+        "hint": "AQAAgP___38bAAAAGwAAAH0AAABvAAAAWJrvQQAAAAAEPApD54z0QhsAAAAbAAAAfQAAAG8AAAAOAACADbn5ALyF3wINufkAvIXfAgUADxJBHw0J",
+        "distance": 0,
+        "name": "Opernring",
+        "location": [
+          16.365837,
+          48.203196
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+*
+!fuel_stop/
+!fuel_stop/*.py
+!requirements.lock
+!Dockerfile
