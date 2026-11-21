@@ -177,11 +177,11 @@ Grafana queries are in [monitoring](monitoring.md). No monitoring stack is insta
 CI runs offline tests, validates Compose, checks the dependency export, builds the
 worker and checks container liveness. It does not download the country map.
 
-`deploy/kubernetes/worker.yaml` is an updated **worker-only integration template**.
-It expects an OSRM Service named `osrm` and a `fuel-stop-routing-data` PVC with the
-boundary and `stations.json` accessible to both worker replicas. Neither resource is provisioned by
-this change. Two-laptop Kubernetes execution remains unverified. Compose is the
-runnable local setup; building the rest of the platform is outside this change.
+The [Kubernetes guide](kubernetes.md) describes the full single-node kind setup
+in `deploy/kubernetes/local`, including OSRM, routing storage, PostgreSQL, the
+public API and controller. The reusable worker manifest has moved to
+`deploy/kubernetes/base/worker.yaml`. The local overlay uses one worker; two-laptop
+execution still requires a separate storage/network/image distribution setup.
 
 ## Sources
 

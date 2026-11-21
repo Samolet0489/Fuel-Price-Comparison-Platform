@@ -1,4 +1,36 @@
-# Latest verification: station retrieval fix, 21 November 2026
+# Latest verification: local Kubernetes, 21 November 2026
+
+- Created an isolated single-node kind v0.33.0 cluster on Docker Desktop, using
+  Kubernetes v1.37.0. `kubectl` v1.36.1 is the installed client. The node image is
+  pinned by digest in the startup script. Default user kubeconfig is unchanged.
+- Kubernetes server-side dry-run accepted the local overlay. All five application
+  pods reached Ready; both routing-data and PostgreSQL PVCs bound successfully.
+- Real public-API jobs on port 18001 returned `direct` at **192.4779 km** and
+  `prices_unavailable` at **192.5431 km**, with Shell fallback and **6.553 L** to buy.
+- The served FuelRoute HTML and station API returned successfully; the catalogue
+  contained **465 stations**. This checks HTTP delivery, not a browser visual review.
+- `scripts/check_kubernetes.ps1` passed after replacing the worker and PostgreSQL
+  pods: completed job `75b722bc-92bb-4c14-bd8b-11d2317d3343` retained its result,
+  and both example jobs succeeded again after replacement.
+- Rerunning `scripts/start_kubernetes.ps1` reused the cluster, Secret and PVCs;
+  the same completed job remained `SUCCEEDED`. All five final pods were Ready
+  with zero restarts and the public API returned `status=ok`.
+- PostgreSQL pod readiness can precede public-API database connectivity briefly
+  while service endpoints update. Recovery checks wait up to 60 seconds for a
+  successful database-backed `/health/ready` response before checking saved jobs.
+- Startup uses an API database-wait init container and a controller API-wait init
+  container. The initial API startup without that dependency failed before the
+  database became available; the corrected Deployment started without restarts.
+- PowerShell syntax checks, kustomize rendering and `git diff --check` passed.
+  Application source and Compose configuration are unchanged by this milestone.
+- No two-laptop execution, node failure, cluster deletion/recreation persistence,
+  deployed Grafana, carbon-aware dispatch or live-price acceptance is claimed.
+  PostgreSQL data survives pod replacement but is lost if the kind cluster is
+  deleted. See [Kubernetes guide](kubernetes.md).
+
+---
+
+# Earlier verification: station retrieval fix, 21 November 2026
 
 ## CI container startup check update
 

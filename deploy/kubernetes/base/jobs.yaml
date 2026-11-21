@@ -1,0 +1,251 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fuel-stop-jobs-config
+data:
+  PGHOST: postgres
+  PGDATABASE: fuel_stop
+  PGUSER: fuel_stop
+  WORKER_URL: http://fuel-stop-worker:8000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trip-jobs
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - name: POSTGRES_DB
+              value: fuel_stop
+            - name: POSTGRES_USER
+              value: fuel_stop
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fuel-stop-db
+                  key: PGPASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1, -U, fuel_stop, -d, fuel_stop]
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1, -U, fuel_stop, -d, fuel_stop]
+          livenessProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1, -U, fuel_stop, -d, fuel_stop]
+            periodSeconds: 20
+          volumeMounts:
+            - name: database
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: database
+          persistentVolumeClaim:
+            claimName: trip-jobs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fuel-stop-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fuel-stop-api
+  template:
+    metadata:
+      labels:
+        app: fuel-stop-api
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      initContainers:
+        - name: wait-for-database
+          image: fuel-stop-jobs:local
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: fuel-stop-jobs-config
+            - secretRef:
+                name: fuel-stop-db
+          command:
+            - python
+            - -c
+            - |
+              import time, psycopg
+              for attempt in range(120):
+                  try:
+                      with psycopg.connect(connect_timeout=2) as db:
+                          db.execute('SELECT 1')
+                      break
+                  except psycopg.Error:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('PostgreSQL not ready')
+      containers:
+        - name: api
+          image: fuel-stop-jobs:local
+          imagePullPolicy: Never
+          command: [python, -m, uvicorn, fuel_stop.public_api:app, --host, 0.0.0.0, --port, "8001"]
+          envFrom:
+            - configMapRef:
+                name: fuel-stop-jobs-config
+            - secretRef:
+                name: fuel-stop-db
+          ports:
+            - name: http
+              containerPort: 8001
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+          # Database availability controls readiness, not process liveness.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fuel-stop-api
+spec:
+  selector:
+    app: fuel-stop-api
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fuel-stop-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: fuel-stop-controller
+  template:
+    metadata:
+      labels:
+        app: fuel-stop-controller
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      # The API initializes the schema. Compose expresses this as depends_on.
+      initContainers:
+        - name: wait-for-api
+          image: fuel-stop-jobs:local
+          imagePullPolicy: Never
+          command:
+            - python
+            - -c
+            - |
+              import time, urllib.request
+              for attempt in range(120):
+                  try:
+                      urllib.request.urlopen('http://fuel-stop-api:8001/health/ready', timeout=2).close()
+                      break
+                  except OSError:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('API not ready')
+      containers:
+        - name: controller
+          image: fuel-stop-jobs:local
+          imagePullPolicy: Never
+          command: [python, -m, fuel_stop.controller]
+          envFrom:
+            - configMapRef:
+                name: fuel-stop-jobs-config
+            - secretRef:
+                name: fuel-stop-db
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

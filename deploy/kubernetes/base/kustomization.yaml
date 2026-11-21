@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: fuel-stop
+resources:
+  - namespace.yaml
+  - worker.yaml
+  - osrm.yaml
+  - jobs.yaml

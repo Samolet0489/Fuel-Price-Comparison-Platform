@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - routing-storage.yaml
+replicas:
+  - name: fuel-stop-worker
+    count: 1
+patches:
+  - target:
+      kind: Deployment
+      name: fuel-stop-worker
+    patch: |-
+      - op: remove
+        path: /spec/template/spec/affinity
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Service
+      name: fuel-stop-api
+    patch: |-
+      - op: add
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30081

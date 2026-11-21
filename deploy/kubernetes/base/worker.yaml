@@ -1,6 +1,5 @@
-# Worker-only integration template. Before applying, provide an OSRM Service
-# named osrm and a PVC fuel-stop-routing-data containing austria-boundary.geojson.
-# Compose is the supported local setup; these cluster dependencies are not created here.
+# Apply through kustomize. The local overlay supplies routing storage and uses
+# one replica; a multi-node installation must provision shared data separately.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

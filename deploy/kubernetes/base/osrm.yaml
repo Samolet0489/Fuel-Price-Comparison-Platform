@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osrm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: osrm
+  template:
+    metadata:
+      labels:
+        app: osrm
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: osrm
+          image: ghcr.io/project-osrm/osrm-backend@sha256:855614a38f464b0558a2ad6eaa7cb8c139f39887da9b38b485ce453c6e6e6124
+          command: [osrm-routed, --algorithm, mld, /data/austria.osrm]
+          ports:
+            - name: routing
+              containerPort: 5000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          startupProbe:
+            tcpSocket:
+              port: routing
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: routing
+          livenessProbe:
+            tcpSocket:
+              port: routing
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: routing-data
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: routing-data
+          persistentVolumeClaim:
+            claimName: fuel-stop-routing-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osrm
+spec:
+  selector:
+    app: osrm
+  ports:
+    - name: routing
+      port: 5000
+      targetPort: routing

@@ -127,13 +127,14 @@ Production never falls back to replay routes or a public demo routing server.
 | Station lookup | Real local OSM catalogue; 465 eligible Austrian stations, no runtime HTTP lookup |
 | Current Austrian prices | Authorised source still required; no private API scraping |
 | Monitoring | Existing Prometheus metrics and Grafana queries retained |
-| Kubernetes | Worker-only integration template; cluster OSRM/data provisioning still required |
+| Kubernetes | Full single-node kind deployment and live verification scripts; see the Kubernetes guide for verification status and multi-node limits |
 | CI | Offline tests, Compose validation and worker image smoke test; GitHub run pending |
 
 ## Understand and present it
 
 - [Component walkthrough](docs/component-guide.md): adapter mapping, formulas, worked example and errors.
 - [Windows deployment guide](docs/deployment.md): preparation, Compose, local Python and troubleshooting.
+- [Kubernetes guide](docs/kubernetes.md): isolated local cluster, startup, storage and recovery checks.
 - [Austria-only routing decision](docs/adr/0002-local-osrm.md): why a country extract alone is insufficient.
 - [Authorised price dependency](docs/price-source.md): feed contract and access requirement.
 - [Verification record](docs/verification.md): measured results and untested items.

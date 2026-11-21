@@ -10,3 +10,4 @@ data/
 *.osrm*
 *.pbf.md5
 *.tar
+.local/

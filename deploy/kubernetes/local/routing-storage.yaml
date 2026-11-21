@@ -1,0 +1,31 @@
+# kind extraMounts exposes the existing host data at this node path, read-only.
+# This storage is for a single-node development cluster only.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: fuel-stop-routing-data
+spec:
+  capacity:
+    storage: 4Gi
+  accessModes: [ReadOnlyMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: fuel-stop
+    name: fuel-stop-routing-data
+  hostPath:
+    path: /fuel-stop-routing-data
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fuel-stop-routing-data
+  namespace: fuel-stop
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: fuel-stop-routing-data
+  resources:
+    requests:
+      storage: 4Gi
