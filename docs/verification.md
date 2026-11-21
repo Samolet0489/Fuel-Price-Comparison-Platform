@@ -1,5 +1,30 @@
 # Latest verification: station retrieval fix, 21 November 2026
 
+## CI container startup check update
+
+The GitHub run supplied by the user exited with curl 56 immediately after
+`docker run -d`. The original probe retried connection refusal, but not connection
+resets or empty replies while the application was still starting.
+
+Local reproduction against a fresh CI image returned curl 52 (empty reply) while
+the container was running. On the same container, the corrected bounded probe
+retried those startup errors and returned HTTP 200 with `status=ok`. Logs confirmed
+normal Uvicorn startup on `0.0.0.0:8000`; no application code or binding change
+was needed. An intentionally exited test container still failed the corrected
+probe with a nonzero curl exit after about 30.5 seconds, preserving failure detection.
+Both isolated test containers were removed; the existing application was untouched.
+
+The workflow now uses `--retry-all-errors`, connection/request/retry timeouts and
+a two-minute step timeout. Separate diagnostic and unconditional cleanup steps
+retain logs and container state before removal, including when the probe fails.
+The next GitHub Actions run must still be observed after this workflow change is
+pushed. Local reproduction used Windows curl, so GitHub's Ubuntu runner has not
+yet executed the revised command. No commit or push was made by the agent.
+
+Reference: [curl retry options](https://curl.se/docs/manpage.html#--retry-all-errors).
+
+## Station retrieval verification
+
 Normal station lookup now uses the existing local Austria PBF rather than public
 Overpass. The previous migration record below is historical; its pending station
 lookup and Vienna-to-Graz checks are superseded by these results.

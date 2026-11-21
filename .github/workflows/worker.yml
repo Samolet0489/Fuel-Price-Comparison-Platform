@@ -22,7 +22,24 @@ jobs:
       - run: docker build -t fuel-stop-worker:ci .
       - run: docker compose --profile prepare build station-prepare
       - name: Container health smoke test
+        id: container-smoke
+        timeout-minutes: 2
         run: |
-          docker run -d --name fuel-stop-ci -p 8000:8000 fuel-stop-worker:ci
-          curl --retry 15 --retry-connrefused --retry-delay 1 --fail http://localhost:8000/health/live
-          docker rm -f fuel-stop-ci
+          docker run -d --name fuel-stop-ci -p 127.0.0.1:8000:8000 fuel-stop-worker:ci
+          # A published Docker port may reset/close a connection while Python
+          # is importing, before Uvicorn starts listening. Retry this GET only;
+          # a persistent failure still fails the step within the time budget.
+          curl --silent --show-error --fail \
+            --retry 30 --retry-all-errors --retry-delay 1 --retry-max-time 60 \
+            --connect-timeout 2 --max-time 5 \
+            http://127.0.0.1:8000/health/live
+      - name: Container startup diagnostics
+        if: ${{ always() && steps.container-smoke.outcome != 'skipped' }}
+        run: |
+          if docker container inspect fuel-stop-ci >/dev/null 2>&1; then
+            docker logs --timestamps fuel-stop-ci
+            docker inspect --format '{{json .State}}' fuel-stop-ci
+          fi
+      - name: Clean up smoke container
+        if: always()
+        run: docker rm -f fuel-stop-ci 2>/dev/null || true
