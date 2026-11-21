@@ -4,7 +4,8 @@ This repository implements an **Austrian single-stop fuel planner** and a public
 trip API backed by **PostgreSQL**. The controller dispatches trip jobs to the
 planner, which uses **local OSRM in Docker** for real road routing. No routing
 account or API key is required. The map UI submits trips through the public API.
-Carbon-aware dispatch is future work.
+Production carbon-aware dispatch is future work. The optional local placement
+lab demonstrates worker relocation using simulated regional conditions.
 
 ## Run it on Windows
 
@@ -127,6 +128,7 @@ Production never falls back to replay routes or a public demo routing server.
 | Station lookup | Real local OSM catalogue; 465 eligible Austrian stations, no runtime HTTP lookup |
 | Current Austrian prices | Authorised source still required; no private API scraping |
 | Monitoring | Existing Prometheus metrics and Grafana queries retained |
+| Placement lab | Separate virtual-region cluster with simulated price/carbon controls, real worker scheduling, Prometheus and Grafana |
 | Kubernetes | Full single-node kind deployment and live verification scripts; see the Kubernetes guide for verification status and multi-node limits |
 | CI | Offline tests, Compose validation and worker image smoke test; GitHub run pending |
 
@@ -135,6 +137,7 @@ Production never falls back to replay routes or a public demo routing server.
 - [Component walkthrough](docs/component-guide.md): adapter mapping, formulas, worked example and errors.
 - [Windows deployment guide](docs/deployment.md): preparation, Compose, local Python and troubleshooting.
 - [Kubernetes guide](docs/kubernetes.md): isolated local cluster, startup, storage and recovery checks.
+- [Regional placement lab](docs/simulation.md): simulated conditions, real worker relocation, Prometheus and Grafana.
 - [Austria-only routing decision](docs/adr/0002-local-osrm.md): why a country extract alone is insufficient.
 - [Authorised price dependency](docs/price-source.md): feed contract and access requirement.
 - [Verification record](docs/verification.md): measured results and untested items.

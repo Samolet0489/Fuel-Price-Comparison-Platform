@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Placement lab · FuelRoute</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0c1423;color:#e8effb}*{box-sizing:border-box}body{max-width:1200px;margin:auto;padding:32px 24px}header{display:flex;justify-content:space-between;gap:20px;align-items:center}h1{font-size:30px;margin:8px 0}h2{font-size:19px;margin:0 0 16px}p{line-height:1.6;color:#a8b8d1}a{color:#79d9d2;text-decoration:none}nav{display:flex;gap:18px;flex-wrap:wrap}.badge{color:#8fe3ce;font-size:12px;text-transform:uppercase;letter-spacing:2px}.notice{padding:14px 18px;background:#172638;border-left:3px solid #75d4c5;margin:24px 0}.summary,.regions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.card{background:#142035;border:1px solid #2a3a53;border-radius:14px;padding:24px;margin-bottom:20px}.value{font-size:30px;font-weight:650;margin:10px 0}.muted{color:#a8b8d1;font-size:14px}.controls{display:flex;align-items:center;flex-wrap:wrap;gap:16px;margin-bottom:20px}label{display:flex;flex-direction:column;gap:8px;font-size:14px;margin:16px 0}label.check{flex-direction:row;align-items:center}input,select,button{font:inherit;border:1px solid #3b526f;border-radius:7px;padding:10px;background:#0e192a;color:#edf5ff}input[type=checkbox]{width:18px;height:18px;accent-color:#6fdbc4}button{cursor:pointer}button.primary{background:#8ae2ca;color:#102d29;border:0;font-weight:700}button:hover{border-color:#8ae2ca}button:disabled{opacity:.6;cursor:wait}.presets{display:flex;gap:8px;flex-wrap:wrap}.presets button{font-size:13px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:12px 8px;border-bottom:1px solid #2a3a53;overflow-wrap:anywhere}th{color:#a8b8d1;font-weight:500}.table-wrap{overflow-x:auto}.error{color:#ffb0a8}.good{color:#8ae2ca}#feedback{min-height:24px;margin-left:12px}footer{margin:20px 0 40px;font-size:13px;color:#a8b8d1}@media(max-width:650px){.summary,.regions{grid-template-columns:1fr}header{align-items:flex-start;flex-direction:column}body{padding:20px 14px}.card{padding:18px}.value{font-size:24px}}
+  </style>
+  <script defer src="/simulation.js"></script>
+</head>
+<body>
+  <header><div><span class="badge">FuelRoute · placement lab</span><h1>See your worker move.</h1></div><nav><a id="grafana" href="http://127.0.0.1:13000/d/fuel-placement">Grafana dashboard ↗</a><a href="http://127.0.0.1:28001/">Trip planner ↗</a><a href="/docs">Control API ↗</a></nav></header>
+  <div class="notice"><strong>Simulated countries. Real Kubernetes scheduling.</strong><br><span class="muted">Austria and Germany are virtual nodes on this laptop. Prices and carbon intensity below are invented inputs; they are not live grid data or measured emissions.</span></div>
+  <div class="summary">
+    <section class="card"><h2>Controller’s requested location</h2><div class="value" id="target">Connecting…</div><div id="reason" class="muted" role="status">Waiting for the controller</div></section>
+    <section class="card"><h2>Observed ready worker</h2><div class="value" id="observed">Waiting…</div><div id="health" class="muted">Reading Kubernetes</div></section>
+  </div>
+  <section class="card"><h2>Change the environment</h2><p>Select an objective, edit the conditions, then apply. The controller needs a 10% improvement and waits 30 seconds between voluntary moves. Making a location unavailable bypasses that cooldown.</p>
+    <div class="presets"><button type="button" data-preset="at-carbon">Austria cleaner</button><button type="button" data-preset="de-carbon">Germany cleaner</button><button type="button" data-preset="at-price">Austria cheaper</button><button type="button" data-preset="de-price">Germany cheaper</button></div>
+    <form id="scenario">
+      <div class="controls"><label>Optimize for<select id="objective"><option value="carbon">Lower carbon intensity</option><option value="price">Lower electricity price</option></select></label><label class="check"><input id="enabled" type="checkbox" checked>Automatic placement enabled</label></div>
+      <div class="regions">
+        <fieldset class="card"><legend>Austria · AT</legend><label>Electricity price (€/kWh)<input id="at-price" type="number" min="0" max="5" step="0.01" required></label><label>Carbon intensity (gCO₂e/kWh)<input id="at-carbon" type="number" min="0" max="2000" step="1" required></label><label class="check"><input id="at-available" type="checkbox">Eligible for placement</label></fieldset>
+        <fieldset class="card"><legend>Germany · DE</legend><label>Electricity price (€/kWh)<input id="de-price" type="number" min="0" max="5" step="0.01" required></label><label>Carbon intensity (gCO₂e/kWh)<input id="de-carbon" type="number" min="0" max="2000" step="1" required></label><label class="check"><input id="de-available" type="checkbox">Eligible for placement</label></fieldset>
+      </div>
+      <button class="primary" id="apply" type="submit">Apply conditions</button><span id="feedback" role="status"></span>
+    </form>
+  </section>
+  <section class="card"><h2>Actual worker pods</h2><div class="table-wrap"><table><thead><tr><th>Pod</th><th>Kubernetes node</th><th>Simulated region</th><th>Status</th></tr></thead><tbody id="pods"></tbody></table></div></section>
+  <section class="card"><h2>Placement requests</h2><p class="muted">Recent controller requests. The pod table above confirms whether a move has finished. Grafana keeps the observed placement timeline.</p><div class="table-wrap"><table><thead><tr><th>Time</th><th>Requested region</th><th>Reason</th></tr></thead><tbody id="events"></tbody></table></div></section>
+  <footer>Only the planner worker changes location. PostgreSQL, OSRM and the public API stay on the infrastructure node. A move creates a replacement pod; it does not transfer a running process or an in-flight calculation.</footer>
+</body>
+</html>

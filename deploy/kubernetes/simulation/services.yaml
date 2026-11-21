@@ -1,0 +1,682 @@
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+    "name": "fuel-stop-placement",
+    "namespace": "fuel-stop"
+  }
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "Role",
+  "metadata": {
+    "name": "fuel-stop-placement",
+    "namespace": "fuel-stop"
+  },
+  "rules": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "configmaps"
+      ],
+      "resourceNames": [
+        "fuel-stop-simulation"
+      ],
+      "verbs": [
+        "get",
+        "patch"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "resources": [
+        "deployments"
+      ],
+      "resourceNames": [
+        "fuel-stop-worker"
+      ],
+      "verbs": [
+        "get",
+        "patch"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "pods"
+      ],
+      "verbs": [
+        "get",
+        "list"
+      ]
+    }
+  ]
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "RoleBinding",
+  "metadata": {
+    "name": "fuel-stop-placement",
+    "namespace": "fuel-stop"
+  },
+  "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "fuel-stop-placement"
+  },
+  "subjects": [
+    {
+      "kind": "ServiceAccount",
+      "name": "fuel-stop-placement",
+      "namespace": "fuel-stop"
+    }
+  ]
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "ClusterRole",
+  "metadata": {
+    "name": "fuel-stop-simulation-nodes"
+  },
+  "rules": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "nodes"
+      ],
+      "verbs": [
+        "get",
+        "list"
+      ]
+    }
+  ]
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "ClusterRoleBinding",
+  "metadata": {
+    "name": "fuel-stop-simulation-nodes"
+  },
+  "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "fuel-stop-simulation-nodes"
+  },
+  "subjects": [
+    {
+      "kind": "ServiceAccount",
+      "name": "fuel-stop-placement",
+      "namespace": "fuel-stop"
+    }
+  ]
+}
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "fuel-stop-simulation",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "replicas": 1,
+    "strategy": {
+      "type": "Recreate"
+    },
+    "selector": {
+      "matchLabels": {
+        "app": "fuel-stop-simulation"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "fuel-stop-simulation"
+        }
+      },
+      "spec": {
+        "nodeSelector": {
+          "simulation.fuel-stop/role": "infrastructure"
+        },
+        "tolerations": [
+          {
+            "key": "node-role.kubernetes.io/control-plane",
+            "operator": "Exists",
+            "effect": "NoSchedule"
+          }
+        ],
+        "automountServiceAccountToken": true,
+        "containers": [
+          {
+            "name": "simulation",
+            "image": "fuel-stop-jobs:local",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 8010
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "512Mi"
+              }
+            },
+            "startupProbe": {
+              "httpGet": {
+                "path": "/health/live",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/health/ready",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health/live",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "imagePullPolicy": "Never",
+            "command": [
+              "python",
+              "-m",
+              "uvicorn",
+              "fuel_stop.placement_app:app",
+              "--host",
+              "0.0.0.0",
+              "--port",
+              "8010"
+            ],
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            }
+          }
+        ],
+        "serviceAccountName": "fuel-stop-placement"
+      }
+    }
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "fuel-stop-simulation",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "type": "NodePort",
+    "selector": {
+      "app": "fuel-stop-simulation"
+    },
+    "ports": [
+      {
+        "name": "http",
+        "port": 8010,
+        "targetPort": "http",
+        "nodePort": 30090
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+    "name": "fuel-stop-prometheus",
+    "namespace": "fuel-stop"
+  }
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "Role",
+  "metadata": {
+    "name": "fuel-stop-prometheus",
+    "namespace": "fuel-stop"
+  },
+  "rules": [
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "pods"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ]
+    }
+  ]
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "RoleBinding",
+  "metadata": {
+    "name": "fuel-stop-prometheus",
+    "namespace": "fuel-stop"
+  },
+  "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "fuel-stop-prometheus"
+  },
+  "subjects": [
+    {
+      "kind": "ServiceAccount",
+      "name": "fuel-stop-prometheus",
+      "namespace": "fuel-stop"
+    }
+  ]
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "PersistentVolumeClaim",
+  "metadata": {
+    "name": "prometheus-data",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "accessModes": [
+      "ReadWriteOnce"
+    ],
+    "resources": {
+      "requests": {
+        "storage": "2Gi"
+      }
+    }
+  }
+}
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "prometheus",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "replicas": 1,
+    "strategy": {
+      "type": "Recreate"
+    },
+    "selector": {
+      "matchLabels": {
+        "app": "prometheus"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "prometheus"
+        }
+      },
+      "spec": {
+        "nodeSelector": {
+          "simulation.fuel-stop/role": "infrastructure"
+        },
+        "tolerations": [
+          {
+            "key": "node-role.kubernetes.io/control-plane",
+            "operator": "Exists",
+            "effect": "NoSchedule"
+          }
+        ],
+        "automountServiceAccountToken": true,
+        "containers": [
+          {
+            "name": "prometheus",
+            "image": "prom/prometheus:v3.13.5",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 9090
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "512Mi"
+              }
+            },
+            "startupProbe": {
+              "httpGet": {
+                "path": "/-/ready",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/-/ready",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/-/ready",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "args": [
+              "--config.file=/etc/prometheus/prometheus.yml",
+              "--storage.tsdb.path=/prometheus",
+              "--storage.tsdb.retention.time=24h",
+              "--storage.tsdb.retention.size=1GB"
+            ],
+            "volumeMounts": [
+              {
+                "name": "config",
+                "mountPath": "/etc/prometheus",
+                "readOnly": true
+              },
+              {
+                "name": "storage",
+                "mountPath": "/prometheus"
+              }
+            ]
+          }
+        ],
+        "serviceAccountName": "fuel-stop-prometheus",
+        "securityContext": {
+          "fsGroup": 65534
+        },
+        "volumes": [
+          {
+            "name": "config",
+            "configMap": {
+              "name": "prometheus-config"
+            }
+          },
+          {
+            "name": "storage",
+            "persistentVolumeClaim": {
+              "claimName": "prometheus-data"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "prometheus",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "type": "NodePort",
+    "selector": {
+      "app": "prometheus"
+    },
+    "ports": [
+      {
+        "name": "http",
+        "port": 9090,
+        "targetPort": "http",
+        "nodePort": 30091
+      }
+    ]
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "PersistentVolumeClaim",
+  "metadata": {
+    "name": "grafana-data",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "accessModes": [
+      "ReadWriteOnce"
+    ],
+    "resources": {
+      "requests": {
+        "storage": "1Gi"
+      }
+    }
+  }
+}
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "grafana",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "replicas": 1,
+    "strategy": {
+      "type": "Recreate"
+    },
+    "selector": {
+      "matchLabels": {
+        "app": "grafana"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "grafana"
+        }
+      },
+      "spec": {
+        "nodeSelector": {
+          "simulation.fuel-stop/role": "infrastructure"
+        },
+        "tolerations": [
+          {
+            "key": "node-role.kubernetes.io/control-plane",
+            "operator": "Exists",
+            "effect": "NoSchedule"
+          }
+        ],
+        "automountServiceAccountToken": false,
+        "containers": [
+          {
+            "name": "grafana",
+            "image": "grafana/grafana:13.3.1",
+            "ports": [
+              {
+                "name": "http",
+                "containerPort": 3000
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              },
+              "limits": {
+                "cpu": "1",
+                "memory": "512Mi"
+              }
+            },
+            "startupProbe": {
+              "httpGet": {
+                "path": "/api/health",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/api/health",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/api/health",
+                "port": "http"
+              },
+              "periodSeconds": 5,
+              "failureThreshold": 60
+            },
+            "env": [
+              {
+                "name": "GF_AUTH_ANONYMOUS_ENABLED",
+                "value": "true"
+              },
+              {
+                "name": "GF_AUTH_ANONYMOUS_ORG_ROLE",
+                "value": "Viewer"
+              },
+              {
+                "name": "GF_USERS_ALLOW_SIGN_UP",
+                "value": "false"
+              },
+              {
+                "name": "GF_ANALYTICS_REPORTING_ENABLED",
+                "value": "false"
+              },
+              {
+                "name": "GF_ANALYTICS_CHECK_FOR_UPDATES",
+                "value": "false"
+              },
+              {
+                "name": "GF_SECURITY_ADMIN_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "fuel-stop-monitoring",
+                    "key": "admin-password"
+                  }
+                }
+              }
+            ],
+            "volumeMounts": [
+              {
+                "name": "datasources",
+                "mountPath": "/etc/grafana/provisioning/datasources",
+                "readOnly": true
+              },
+              {
+                "name": "providers",
+                "mountPath": "/etc/grafana/provisioning/dashboards",
+                "readOnly": true
+              },
+              {
+                "name": "dashboards",
+                "mountPath": "/var/lib/grafana/dashboards",
+                "readOnly": true
+              },
+              {
+                "name": "storage",
+                "mountPath": "/var/lib/grafana"
+              }
+            ]
+          }
+        ],
+        "securityContext": {
+          "fsGroup": 472
+        },
+        "volumes": [
+          {
+            "name": "datasources",
+            "configMap": {
+              "name": "grafana-datasources"
+            }
+          },
+          {
+            "name": "providers",
+            "configMap": {
+              "name": "grafana-providers"
+            }
+          },
+          {
+            "name": "dashboards",
+            "configMap": {
+              "name": "grafana-dashboard"
+            }
+          },
+          {
+            "name": "storage",
+            "persistentVolumeClaim": {
+              "claimName": "grafana-data"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+---
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "grafana",
+    "namespace": "fuel-stop"
+  },
+  "spec": {
+    "type": "NodePort",
+    "selector": {
+      "app": "grafana"
+    },
+    "ports": [
+      {
+        "name": "http",
+        "port": 3000,
+        "targetPort": "http",
+        "nodePort": 30300
+      }
+    ]
+  }
+}

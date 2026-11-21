@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fuel-stop-simulation
+  namespace: fuel-stop
+data:
+  scenario.json: |
+    {"enabled":true,"objective":"carbon","locations":{"at":{"price_eur_kwh":0.30,"carbon_g_kwh":80,"available":true},"de":{"price_eur_kwh":0.15,"carbon_g_kwh":400,"available":true}}}

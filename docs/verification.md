@@ -1,4 +1,43 @@
-# Latest verification: local Kubernetes, 21 November 2026
+# Latest verification: regional placement lab, 21 November 2026
+
+- Created the separate `fuel-stop-sim` kind cluster: one infrastructure node and
+  two virtual worker nodes labelled `at` and `de`. The original cluster was not
+  recreated. Both country labels refer to nodes on the same physical laptop.
+- Regression suite: **94 passed, 1 skipped**. Tests cover objective selection,
+  cooldown, improvement threshold, ties/zero values, simulated and real node
+  unavailability, unfinished rollouts, truthful observed placement, invalid
+  inputs and cross-origin control API writes. The existing upstream TestClient
+  deprecation warning remains.
+- `uv run --frozen python -u -m scripts.check_simulation` passed: carbon changes
+  relocated a real worker pod from Austria to Germany, changing to price moved
+  it back, pause held placement, excluding Austria bypassed voluntary cooldown,
+  and excluding both regions retained the current deployment. Real node names
+  and replacement pod identity were independently checked through `kubectl`.
+- Prometheus scraped both the placement service and discovered worker pods.
+  The provisioned Grafana dashboard and its data-source proxy returned actual
+  metrics. Browser checks confirmed the control presets, saved conditions,
+  observed worker/node table and placement timeline. A dashboard fallback query
+  was corrected to show one controller-health series.
+- Real trip jobs through the simulation cluster's port 28001 succeeded after
+  the placement checks: `direct` **192.4779 km** and `prices_unavailable`
+  **192.5431 km**. No authorized live-price source was configured or simulated.
+- The first cold startup exceeded its initial deadline because public image
+  pulls were serialized behind Grafana. Simulation rollout deadlines now allow
+  up to 20 minutes. A scenario ConfigMap namespace mismatch found during initial
+  bring-up was corrected before the successful live placement checks.
+- Kustomize rendering, PowerShell syntax checks and `git diff --check` passed.
+  `.local/simulation/config` and generated kind configuration are ignored by Git.
+- Rerunning `scripts/start_simulation.ps1` completed successfully, preserved the
+  edited scenario and existing Secrets/PVCs, and left all eight application and
+  monitoring pods Ready with zero restarts in the final observation.
+- This demonstrates simulated regional inputs and real pod replacement on one
+  laptop. It does not measure actual energy, cost savings or emissions, move an
+  in-flight process, or verify two physical laptops or cloud-country migration.
+  See the [regional placement lab guide](simulation.md).
+
+---
+
+# Earlier verification: local Kubernetes, 21 November 2026
 
 - Created an isolated single-node kind v0.33.0 cluster on Docker Desktop, using
   Kubernetes v1.37.0. `kubectl` v1.36.1 is the installed client. The node image is

@@ -1,9 +1,13 @@
-# Existing worker metrics
+# Worker metrics and the placement lab
+
+For a provisioned local Prometheus/Grafana deployment with simulated regional
+conditions and observed worker placement, use the [regional placement lab](simulation.md).
+The existing single-node setup does not automatically install monitoring.
 
 Scrape `/metrics` using `deploy/prometheus.scrape.example.yml` when integrating
 with an existing Prometheus instance. Grafana uses Prometheus as a data source.
-Compose in this component starts the worker and OSRM only; no monitoring stack
-is installed. In Kubernetes, give the scraper permission to discover worker pods.
+Compose starts the application services without a monitoring stack.
+In Kubernetes, give the scraper permission to discover worker pods.
 Scrape each pod separately rather than the load-balanced Service.
 
 ```promql

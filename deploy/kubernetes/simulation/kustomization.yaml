@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: fuel-stop
+resources:
+  - ../local
+  - services.yaml
+configMapGenerator:
+  - name: prometheus-config
+    files: [prometheus.yml]
+  - name: grafana-datasources
+    files: [datasource.yml]
+  - name: grafana-providers
+    files: [provider.yml]
+  - name: grafana-dashboard
+    files: [dashboard.json]
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/progressDeadlineSeconds
+        value: 1200
+  - target:
+      kind: Deployment
+      name: fuel-stop-worker
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: fuel-stop-worker
+      spec:
+        strategy:
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        template:
+          spec:
+            nodeSelector:
+              simulation.fuel-stop/role: worker
+  - target:
+      kind: Deployment
+      name: (fuel-stop-api|fuel-stop-controller|osrm)
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector/simulation.fuel-stop~1role
+        value: infrastructure
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector/simulation.fuel-stop~1role
+        value: infrastructure
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
