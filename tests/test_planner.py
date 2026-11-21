@@ -19,6 +19,7 @@ class Replay:
 
     def __init__(self, case):
         self.rows = case["stations"]
+        self.direct_km = Decimal(case.get("direct_km", 200))
         self.trip = Trip.model_validate({**SAVED["trip"], **case.get("trip", {})})
         self.points = {r["id"]: Point(lon=15 + i / 100, lat=48) for i, r in enumerate(self.rows)}
 
@@ -32,7 +33,7 @@ class Replay:
 
     def route(self, points):
         if len(points) == 2:
-            legs, duration = [Decimal(200)], 1000
+            legs, duration = [self.direct_km], 1000
         else:
             row = next(r for r in self.rows if self.points[r["id"]] == points[1])
             if row.get("no_route"):
@@ -66,6 +67,43 @@ def test_saved_cases(case):
         assert result.stations_compared == 0
     if case["name"] == "partial_prices":
         assert (result.stations_compared, result.feasible_stations, result.priced_stations) == (2, 2, 1)
+        assert result.runner_up is None
+        assert result.savings_eur is None
+    if result.status == "prices_unavailable":
+        assert result.station.id == case["stations"][0]["id"]
+        assert result.route.distance_km == Decimal(200)
+        assert result.litres_to_buy == Decimal("7.000")
+        assert result.estimated_cost_eur is None
+        assert result.price_timestamp is None
+        assert result.runner_up is None
+        assert result.savings_eur is None
+    if result.status == "no_feasible_stop":
+        assert result.station is None
+        assert result.route is None
+        assert result.runner_up is None
+        assert result.savings_eur is None
+
+
+def test_build_guide_cost_comparison():
+    replay = Replay({
+        "direct_km": 185,
+        "trip": {"current_fuel_l": "10"},
+        "stations": [
+            {"id": "B", "legs": [85, 120], "price": "1.60"},
+            {"id": "A", "legs": [75, 115], "price": "1.75"},
+        ],
+    })
+    result = plan(replay.trip, replay, replay, replay, mode="replay", now=NOW)
+    assert result.status == "stop"
+    assert result.station.id == "A"
+    assert result.litres_to_buy == Decimal("4.400")
+    assert result.estimated_cost_eur == Decimal("7.70")
+    assert result.runner_up.station.id == "B"
+    assert result.runner_up.litres_to_buy == Decimal("5.300")
+    assert result.runner_up.estimated_cost_eur == Decimal("8.48")
+    assert result.runner_up.route.distance_km == Decimal(205)
+    assert result.runner_up.detour_km == Decimal(20)
+    assert result.savings_eur == Decimal("0.78")
 
 
 def test_routing_failure_does_not_claim_a_winner():
@@ -92,6 +130,10 @@ def test_price_failure_is_distinct_from_infeasible():
     result = plan(replay.trip, replay, replay, MissingPrices(), now=NOW)
     assert result.status == "prices_unavailable"
     assert result.feasible_stations == 2
+    assert result.station.id == "best-cost"
+    assert result.detour_km == 0
+    assert result.arrival_fuel_l == Decimal("3")
+    assert result.estimated_cost_eur is None
 
 
 def test_station_route_crossing_border_is_excluded():

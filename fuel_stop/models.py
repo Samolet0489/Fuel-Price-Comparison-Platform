@@ -65,6 +65,17 @@ class Quote(Model):
         return self
 
 
+class PricedStop(Model):
+    station: Station
+    route: Route
+    litres_to_buy: Decimal
+    estimated_cost_eur: Decimal
+    arrival_fuel_l: Decimal
+    detour_km: Decimal
+    price_eur_per_l: Decimal
+    price_timestamp: datetime
+
+
 class Plan(Model):
     status: Literal["direct", "stop", "no_feasible_stop", "prices_unavailable"]
     mode: Literal["live", "replay"]
@@ -76,6 +87,8 @@ class Plan(Model):
     detour_km: Decimal | None = None
     price_eur_per_l: Decimal | None = None
     price_timestamp: datetime | None = None
+    runner_up: PricedStop | None = None
+    savings_eur: Decimal | None = None
     price_source: str | None = None
     price_retrieved_at: datetime | None = None
     station_source: str | None = None

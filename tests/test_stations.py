@@ -90,6 +90,10 @@ def test_default_local_station_plan_reaches_price_dependency(tmp_path, monkeypat
         assert result.status_code == 200
         payload = result.json()
         assert payload["status"] == "prices_unavailable"
+        assert payload["station"] is not None
+        assert payload["route"]["distance_km"] == "200"
+        assert payload["litres_to_buy"] == "7.000"
+        assert payload["estimated_cost_eur"] is None
         assert payload["stations_compared"] == payload["feasible_stations"] == 1
         assert payload["station_data_timestamp"] == "2026-11-01T00:00:00Z"
         assert payload["station_source"] == SOURCE

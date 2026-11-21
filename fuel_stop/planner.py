@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 from typing import Protocol
 
-from .models import Plan, Point, Quote, Route, Station, Trip
+from .models import Plan, Point, PricedStop, Quote, Route, Station, Trip
 
 
 class DependencyUnavailable(Exception):
@@ -110,11 +110,29 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
     common.update(priced_stations=len(ranked), ranking_complete=len(ranked) == len(feasible),
                   price_source=prices.source, price_retrieved_at=prices.retrieved_at)
     if not ranked:
-        return Plan(status="prices_unavailable", **common,
-                    message="Feasible stops exist; no matching fresh, authorised price quotes are available")
-    cost, _, _, _, station, route, buy, arrival, detour, quote = min(ranked, key=lambda row: row[:4])
+        station, route, buy, arrival, detour = min(
+            feasible, key=lambda stop: (stop[4], stop[1].duration_s, stop[0].id)
+        )
+        return Plan(status="prices_unavailable", **common, station=station, route=route,
+                    litres_to_buy=buy, arrival_fuel_l=arrival, detour_km=detour,
+                    message="No usable price quotes; showing the least-detour feasible stop")
+
+    ranked.sort(key=lambda row: row[:4])
+    cost, _, _, _, station, route, buy, arrival, detour, quote = ranked[0]
+    cents = Decimal("0.01")
+    estimated_cost = cost.quantize(cents, rounding=ROUND_HALF_UP)
+    runner_up = savings = None
+    if len(ranked) > 1:
+        next_cost, _, _, _, next_station, next_route, next_buy, next_arrival, next_detour, next_quote = ranked[1]
+        runner_up = PricedStop(
+            station=next_station, route=next_route, litres_to_buy=next_buy,
+            estimated_cost_eur=next_cost.quantize(cents, rounding=ROUND_HALF_UP),
+            arrival_fuel_l=next_arrival, detour_km=next_detour,
+            price_eur_per_l=next_quote.eur_per_l, price_timestamp=next_quote.observed_at,
+        )
+        savings = runner_up.estimated_cost_eur - estimated_cost
     return Plan(status="stop", **common, station=station, route=route,
-                litres_to_buy=buy, estimated_cost_eur=cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                litres_to_buy=buy, estimated_cost_eur=estimated_cost, runner_up=runner_up, savings_eur=savings,
                 arrival_fuel_l=arrival, detour_km=detour, price_eur_per_l=quote.eur_per_l,
                 price_timestamp=quote.observed_at,
                 message="Lowest purchase cost among priced feasible candidates; check ranking_complete for missing prices")

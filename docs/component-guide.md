@@ -122,7 +122,7 @@ can explicitly convert them to numbers for display. Coordinates are numeric.
 | 200 | `direct` | No stop needed with the requested reserve |
 | 200 | `stop` | Best priced feasible candidate, with route, station, purchase, arrival fuel, detour and quote time |
 | 200 | `no_feasible_stop` | No returned candidate satisfies the single-stop constraints |
-| 200 | `prices_unavailable` | Feasible stops exist, but no usable price quote exists |
+| 200 | `prices_unavailable` | Least-detour feasible stop, with its route and purchase volume; price and cost are null |
 | 422 | `outside_austria` | Endpoint outside the Austrian area |
 | 422 | `no_route` | No direct driving route returned |
 | 422 | `border_restricted_route` | OSRM's direct route leaves Austria; a different domestic route might exist |
@@ -144,6 +144,10 @@ evaluated, including unreachable candidates. `feasible_stations` counts those th
 pass fuel and detour constraints. `priced_stations` counts feasible stops with a
 fresh usable quote. `ranking_complete=false` means some feasible stops have unknown
 prices; the UI must say "best among priced candidates", not "cheapest overall".
+
+When at least two feasible stops have usable quotes, `runner_up` contains the next
+stop under the same ranking rules, and `savings_eur` is the difference between
+the two displayed costs. Both fields are null without a second priced option.
 
 ## Honest limits of this first component
 
