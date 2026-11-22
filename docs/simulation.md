@@ -97,6 +97,28 @@ cross-checks the real pod/node using `kubectl`, checks paused and unavailable
 scenarios, checks Prometheus scrapes and Grafana's provisioned data source, and
 submits live trip jobs. It restores the previously saved scenario afterward.
 
+### Test a failed move and an interrupted trip
+
+After starting the placement lab, run from the repository root:
+
+```powershell
+uv run --frozen python -u -m scripts.check_recovery
+```
+
+For a fresh lab used only for recovery tests, start it with
+`./scripts/start_simulation.ps1 -RecoveryOnly` to skip starting Prometheus and
+Grafana. On a Docker engine using cgroup v1, the startup script sets the
+compatibility override inside newly created kind nodes.
+
+Run this with the lab idle and both virtual worker nodes schedulable. The
+script uses only the local `kind-fuel-stop-sim` cluster. It makes the replacement
+worker reference a missing catalogue, checks for a real readiness probe
+returning HTTP 503, and waits for rollback before submitting a fresh trip.
+It then temporarily runs two workers, waits for a job to enter its first
+attempt, and deletes that worker pod. It checks that the same job ID succeeds
+on attempt two on the standby node. The worker settings and scenario are
+restored when the script exits.
+
 ```powershell
 $kc = Join-Path $PWD '.local/simulation/config'
 kubectl --kubeconfig $kc --context kind-fuel-stop-sim get nodes -L simulation.fuel-stop/region
