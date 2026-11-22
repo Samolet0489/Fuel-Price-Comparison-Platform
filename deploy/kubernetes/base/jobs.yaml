@@ -7,6 +7,7 @@ data:
   PGDATABASE: fuel_stop
   PGUSER: fuel_stop
   WORKER_URL: http://fuel-stop-worker:8000
+  WORKER_DISCOVERY_HOST: fuel-stop-workers
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

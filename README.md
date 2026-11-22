@@ -70,11 +70,13 @@ This sends both live example trips through the API and controller. Run it with
 the Austrian map and station catalogue prepared and no price feed configured.
 The low-fuel result should include the Shell fallback with the saved catalogue.
 
-The Compose stack uses one worker and one attempt per job. If a controller stops
-during dispatch, a running job becomes failed after its attempt expires and the
-controller can reach PostgreSQL again. PostgreSQL uses a named volume that
-persists across `docker compose down`. The API listens on localhost port 8001;
-the worker remains on port 8000 and PostgreSQL has no published host port.
+Jobs have a 90-second deadline including queue time. An attempt can run for up
+to 30 seconds. A timeout or transient failure can retry once on a different
+ready worker. The default Compose stack has one worker, so a failed attempt can
+only retry if a different ready worker becomes available before the deadline.
+The same job ID remains valid across attempts. PostgreSQL uses a named volume
+that persists across `docker compose down`. The API listens on localhost port
+8001, the worker on port 8000, and PostgreSQL has no published host port.
 
 A low-fuel trip tests the additional station/price dependencies:
 

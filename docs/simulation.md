@@ -63,8 +63,11 @@ existing Deployment and reports the problem rather than deleting the worker.
 
 Kubernetes starts a replacement pod on the selected node. The worker Deployment
 uses one extra pod during rollout and keeps the old ready pod until the new one
-is ready. This does not transfer an in-flight calculation or establish seamless
-live process migration. Scheduling and service updates are not instantaneous.
+is ready. If a placement rollout fails or exceeds 60 seconds, the placement
+controller restores the previous eligible region and waits for the restored
+worker to be ready. Changing the scenario allows a new attempt at the failed
+region. A trip interrupted during a move can retry once on a different ready
+worker within its 90-second overall deadline.
 
 ## What the graphs mean
 

@@ -54,6 +54,11 @@ services:
       - ./data/osrm:/data:ro
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
     read_only: true
   postgres:
     image: postgres:17-alpine

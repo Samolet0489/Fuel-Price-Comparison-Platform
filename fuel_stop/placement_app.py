@@ -6,6 +6,7 @@ import ssl
 import threading
 import time
 from contextlib import asynccontextmanager
+from hashlib import sha256
 from pathlib import Path
 
 import httpx
@@ -21,6 +22,11 @@ NAMESPACE = os.getenv("POD_NAMESPACE", "fuel-stop")
 ROOT = f"/apis/apps/v1/namespaces/{NAMESPACE}/deployments/fuel-stop-worker"
 CONFIG = f"/api/v1/namespaces/{NAMESPACE}/configmaps/fuel-stop-simulation"
 SA = Path("/var/run/secrets/kubernetes.io/serviceaccount")
+PREVIOUS_REGION = "simulation.fuel-stop/previous-ready-region"
+MOVE_PENDING = "simulation.fuel-stop/move-pending"
+FAILED_REGION = "simulation.fuel-stop/failed-region"
+FAILED_SCENARIO = "simulation.fuel-stop/failed-scenario"
+MOVE_TIMEOUT_SECONDS = 60
 
 
 class Kubernetes:
@@ -102,31 +108,69 @@ class Placement:
             if ready and region in counts:
                 counts[region] += 1
         current = deployment["spec"]["template"]["spec"].get("nodeSelector", {}).get(REGION_LABEL)
-        last = float(deployment["metadata"].get("annotations", {}).get(LAST_CHANGE, "0"))
+        annotations = deployment["metadata"].get("annotations", {})
+        last = float(annotations.get(LAST_CHANGE, "0"))
         now = time.time()
-        decision = choose(scenario, current, ready_regions, last, now)
+        scenario_id = sha256(scenario.model_dump_json().encode()).hexdigest()
+        failed_region = annotations.get(FAILED_REGION) if annotations.get(FAILED_SCENARIO) == scenario_id else None
+        decision = choose(scenario, current, ready_regions - {failed_region}, last, now)
         desired = deployment["spec"].get("replicas", 1)
         status = deployment.get("status", {})
-        settled = (status.get("observedGeneration", 0) >= deployment["metadata"]["generation"]
+        observed = status.get("observedGeneration", 0) >= deployment["metadata"]["generation"]
+        settled = (observed
                    and status.get("updatedReplicas", 0) == desired
                    and status.get("replicas", 0) == desired
                    and counts.get(current, 0) == desired)
+        previous = annotations.get(PREVIOUS_REGION)
+        environments = scenario.locations.model_dump()
+        deadline_exceeded = observed and any(
+            c.get("type") == "Progressing" and c.get("status") == "False"
+            and c.get("reason") == "ProgressDeadlineExceeded" for c in status.get("conditions", [])
+        )
+        pending = annotations.get(MOVE_PENDING) == current and current in REGIONS
+        failed = not settled and (deadline_exceeded or (pending and now - last >= MOVE_TIMEOUT_SECONDS))
         reason = decision.reason
-        if decision.target and decision.target != current:
-            environment = scenario.locations.model_dump().get(current, {})
-            unavailable = current not in ready_regions or not environment.get("available", False)
-            if not settled and not unavailable:
-                reason = "Waiting for the previous worker rollout to finish"
+        target = None
+        changes = {}
+        if failed:
+            # The annotation survives a controller restart. Older deployments
+            # may still have the original ready pod during a failed rollout.
+            if previous not in REGIONS and not annotations.get(FAILED_REGION):
+                previous = next((region for region in REGIONS if region != current and counts[region]), None)
+            if previous in ready_regions and previous != current and environments[previous]["available"]:
+                target = previous
+                changes = {PREVIOUS_REGION: None, FAILED_REGION: current, FAILED_SCENARIO: scenario_id}
+                reason = "Worker rollout failed; restoring the previous healthy placement"
             else:
-                self.kube.request("PATCH", ROOT, {
-                    "metadata": {"resourceVersion": deployment["metadata"]["resourceVersion"],
-                                 "annotations": {LAST_CHANGE: str(now)}},
-                    "spec": {"template": {"spec": {"nodeSelector": {REGION_LABEL: decision.target}}}}})
-                current, last = decision.target, now
-                self.changes.labels(current).inc()
-                with self.lock:
-                    self.events = ([{"time": now, "target": current, "reason": reason}] + self.events)[:30]
-        for region, environment in scenario.locations.model_dump().items():
+                reason = "Worker rollout failed; no previous eligible placement to restore"
+        elif failed_region and current != failed_region and not settled:
+            reason = "Waiting for the restored worker to become ready"
+        elif decision.target and decision.target != current:
+            unavailable = current not in ready_regions or not environments.get(current, {}).get("available", False)
+            if settled or unavailable:
+                target = decision.target
+                changes = {PREVIOUS_REGION: current if counts.get(current) else None,
+                           FAILED_REGION: None, FAILED_SCENARIO: None}
+            else:
+                reason = "Waiting for the previous worker rollout to finish"
+        elif failed_region and settled:
+            reason = "Previous placement is ready; change the scenario to retry the failed region"
+        if target:
+            self.kube.request("PATCH", ROOT, {
+                "metadata": {"resourceVersion": deployment["metadata"]["resourceVersion"],
+                             "annotations": {LAST_CHANGE: str(now), MOVE_PENDING: target, **changes}},
+                "spec": {"template": {"spec": {"nodeSelector": {REGION_LABEL: target}}}}})
+            current, last = target, now
+            settled = False
+            self.changes.labels(current).inc()
+            with self.lock:
+                self.events = ([{"time": now, "target": current, "reason": reason}] + self.events)[:30]
+        elif settled and pending:
+            self.kube.request("PATCH", ROOT, {"metadata": {
+                "resourceVersion": deployment["metadata"]["resourceVersion"],
+                "annotations": {MOVE_PENDING: None, PREVIOUS_REGION: None},
+            }})
+        for region, environment in environments.items():
             self.carbon.labels(region).set(environment["carbon_g_kwh"])
             self.price.labels(region).set(environment["price_eur_kwh"])
             self.available.labels(region).set(environment["available"])
@@ -139,6 +183,7 @@ class Placement:
         self.healthy.set(1)
         with self.lock:
             self.snapshot = {"healthy": True, "scenario": scenario.model_dump(), "target": current,
+                             "target_ready": settled,
                              "reason": reason, "wait_seconds": decision.wait_seconds,
                              "last_change": last, "nodes": observations, "pods": pod_observations,
                              "observed_at": now, "cooldown_seconds": COOLDOWN_SECONDS,

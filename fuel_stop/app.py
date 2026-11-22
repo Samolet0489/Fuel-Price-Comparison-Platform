@@ -58,17 +58,27 @@ def live():
 
 @app.get("/health/ready")
 def ready(response: Response):
-    # Local prerequisites are checked; OSRM connectivity is checked per plan.
+    checks = {"boundary_ready": False, "stations_ready": False, "routing_ready": False}
+    routing_url = os.getenv("OSRM_BASE_URL", "http://127.0.0.1:5000")
+    client = app.state.client
     try:
-        boundary()
-        boundary_ready = True
-    except DependencyUnavailable:
-        boundary_ready = False
+        country = boundary()
+        checks["boundary_ready"] = True
+        source = station_provider(client)
+        if isinstance(source, LocalStations):
+            source.load()
+        else:
+            source.check_ready()
+        checks["stations_ready"] = True
+        OSRMRouter(client, routing_url, country).check_ready()
+        checks["routing_ready"] = True
+    except DependencyUnavailable as exc:
         response.status_code = 503
-    return {**live(), "status": "ok" if boundary_ready else "not_ready",
-            "routing_provider": "osrm", "boundary_ready": boundary_ready,
+        checks["dependency"] = exc.dependency
+    return {**live(), "status": "not_ready" if response.status_code == 503 else "ok",
+            "routing_provider": "osrm", **checks,
             "station_source": os.getenv("STATION_SOURCE", "local"),
-            "routing_url": os.getenv("OSRM_BASE_URL", "http://127.0.0.1:5000"),
+            "routing_url": routing_url,
             "prices_configured": all(os.getenv(k) for k in
                                      ("PRICE_FEED_URL", "PRICE_PERMISSION_REFERENCE", "PRICE_SOURCE"))}
 

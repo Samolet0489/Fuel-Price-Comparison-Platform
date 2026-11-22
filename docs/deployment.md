@@ -166,9 +166,9 @@ docker compose down
 | `prices_unavailable` | Feasible stations lack usable authorised price quotes |
 
 `/health/live` checks the process. `/health/ready` validates the local boundary
-and returns 503 if it is missing. It reports the routing URL, not a successful
-connectivity check; use the real-route check for OSRM readiness. The boundary is
-cached after loading: restart the worker after replacing it.
+and configured station source, then probes the OSRM graph. It returns 503 when
+any of those checks fails. A price feed is optional for readiness. The boundary
+is cached after loading, so restart the worker after replacing it.
 
 ## Monitoring, CI and Kubernetes boundary
 

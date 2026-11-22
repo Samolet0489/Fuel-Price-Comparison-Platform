@@ -104,6 +104,48 @@ def test_reconciler_does_not_interrupt_an_unfinished_voluntary_rollout():
     assert 'rollout' in placement.snapshot['reason']
 
 
+@pytest.mark.parametrize("failure", ["progress_deadline", "controller_timeout"])
+def test_failed_rollout_restores_previous_placement_and_waits_for_readiness(monkeypatch, failure):
+    from fuel_stop.placement import LAST_CHANGE, REGION_LABEL
+    from fuel_stop.placement_app import FAILED_REGION, MOVE_PENDING, PREVIOUS_REGION, Placement
+
+    kube = FakeKubernetes()
+    kube.configuration.objective = "price"
+    original = kube.deployment
+    original["spec"]["template"]["spec"]["nodeSelector"][REGION_LABEL] = "de"
+    original["metadata"]["annotations"] = {LAST_CHANGE: "90", PREVIOUS_REGION: "at", MOVE_PENDING: "de"}
+    original["status"].update(updatedReplicas=1, replicas=2)
+    stamp = 100 if failure == "progress_deadline" else 151
+    if failure == "progress_deadline":
+        original["status"]["conditions"] = [
+            {"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded"},
+        ]
+    monkeypatch.setattr("fuel_stop.placement_app.time.time", lambda: stamp)
+    placement = Placement(kube)
+    placement.reconcile()
+    assert placement.snapshot["target"] == "at"
+    assert not placement.snapshot["target_ready"]
+    _, rollback = kube.patches.pop()
+    assert rollback["spec"]["template"]["spec"]["nodeSelector"][REGION_LABEL] == "at"
+    assert rollback["metadata"]["annotations"][FAILED_REGION] == "de"
+
+    original["metadata"].update(generation=3, annotations=rollback["metadata"]["annotations"])
+    original["spec"]["template"]["spec"]["nodeSelector"][REGION_LABEL] = "at"
+    original["status"]["conditions"] = []
+    placement.reconcile()
+    assert not placement.snapshot["target_ready"]
+    assert "restored worker" in placement.snapshot["reason"]
+    assert not kube.patches
+
+    original["status"].update(observedGeneration=3, updatedReplicas=1, replicas=1)
+    stamp += 45
+    placement.reconcile()
+    assert placement.snapshot["target_ready"]
+    assert "Previous placement is ready" in placement.snapshot["reason"]
+    assert len(kube.patches) == 1
+    assert "spec" not in kube.patches[0][1]
+
+
 def test_reconciler_excludes_tainted_nodes_and_terminating_pods():
     from fuel_stop.placement_app import Placement
     kube = FakeKubernetes()

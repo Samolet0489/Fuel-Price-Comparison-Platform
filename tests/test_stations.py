@@ -83,6 +83,39 @@ def test_list_stations_returns_catalogue_without_trip_filter(tmp_path, monkeypat
     }
 
 
+@pytest.mark.parametrize(("station_file", "osrm_ok", "dependency"), [
+    ("missing", True, "stations"),
+    ("invalid", True, "stations"),
+    ("valid", False, "routing"),
+    ("valid", True, None),
+])
+def test_readiness_checks_station_catalogue_and_osrm(tmp_path, monkeypatch, station_file, osrm_ok, dependency):
+    path = tmp_path / "stations.json"
+    if station_file == "valid":
+        catalogue(tmp_path)
+    elif station_file == "invalid":
+        path.write_text("{}")
+    monkeypatch.setenv("STATION_SOURCE", "local")
+    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(path))
+
+    def handler(request):
+        assert "/nearest/v1/driving/" in request.url.path
+        if not osrm_ok:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"code": "Ok", "waypoints": [{"location": [16.369, 48.202]}]})
+
+    with TestClient(app) as http, httpx.Client(transport=httpx.MockTransport(handler)) as upstream:
+        app.state.client = upstream
+        response = http.get("/health/ready")
+        assert http.get("/health/live").status_code == 200
+    ready = response.json()
+    assert response.status_code == (200 if dependency is None else 503)
+    assert ready["boundary_ready"]
+    assert ready["stations_ready"] == (station_file == "valid")
+    assert ready["routing_ready"] == (dependency is None)
+    assert ready.get("dependency") == dependency
+
+
 @pytest.mark.parametrize("station_count", [1, 201])
 def test_default_local_station_plan_compares_all_candidates(tmp_path, monkeypatch, station_count):
     stations = [

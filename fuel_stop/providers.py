@@ -49,6 +49,13 @@ class OSRMRouter:
     def validate_trip(self, trip: Trip):
         self.boundary.validate_trip(trip)
 
+    def check_ready(self):
+        data = request(self.client, "routing", "GET",
+                       f"{self.base_url}/nearest/v1/driving/16.3692842,48.2024484", timeout=0.75)
+        if (not isinstance(data, dict) or data.get("code") != "Ok"
+                or not isinstance(data.get("waypoints"), list) or not data["waypoints"]):
+            raise DependencyUnavailable("routing", "routing_probe_failed")
+
     def route(self, points: list[Point]) -> Route:
         if not 2 <= len(points) <= 3:
             raise ValueError("Expected origin, optional station, and destination")
@@ -109,12 +116,15 @@ class OSMStations:
     def __init__(self, client: httpx.Client, url: str, max_candidates=200):
         self.client, self.url, self.max_candidates = client, url, max_candidates
 
-    def query(self, query):
+    def query(self, query, **options):
         data = request(self.client, "stations", "GET", self.url, params={"data": query},
-                       headers={"User-Agent": "FuelStopPlanner/0.1 (university project)"})
+                       headers={"User-Agent": "FuelStopPlanner/0.1 (university project)"}, **options)
         if not isinstance(data, dict) or "remark" in data or not isinstance(data.get("elements"), list):
             raise DependencyUnavailable("stations", "upstream_incomplete_response")
         return data["elements"]
+
+    def check_ready(self):
+        self.query("[out:json][timeout:1];node(1);out count;", timeout=0.75)
 
     def candidates(self, trip: Trip, direct: Route) -> list[Station]:
         # Any feasible first stop must lie within the car's straight-line range.

@@ -36,6 +36,7 @@ const errorMessages = {
     worker_unavailable: "The planning worker is unavailable. Try again once it’s running.",
     worker_timeout: "The planning worker timed out. Try again.",
     attempt_expired: "The planning job expired. Try again.",
+    job_deadline_exceeded: "The trip could not finish within 90 seconds, including time in the queue.",
     database_unavailable: "The trip database is unavailable. Try again shortly.",
 };
 
@@ -282,7 +283,7 @@ async function planTrip(event) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(trip),
         });
-        const deadline = performance.now() + 70000;
+        const deadline = performance.now() + 95000;
         const explainWait = {
             QUEUED: "Queued for the planning worker…",
             RUNNING: "Checking roads and fuel stops…",

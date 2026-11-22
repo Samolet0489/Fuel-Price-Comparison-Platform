@@ -72,6 +72,7 @@ spec:
             httpGet:
               path: /health/ready
               port: http
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /health/live
@@ -94,6 +95,19 @@ kind: Service
 metadata:
   name: fuel-stop-worker
 spec:
+  selector:
+    app: fuel-stop-worker
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fuel-stop-workers
+spec:
+  clusterIP: None
   selector:
     app: fuel-stop-worker
   ports:
