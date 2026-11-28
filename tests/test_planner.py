@@ -151,6 +151,89 @@ def test_station_route_crossing_border_is_excluded():
     assert result.feasible_stations == 1
 
 
+class ChainReplay:
+    source = "synthetic"
+    retrieved_at = NOW
+
+    def __init__(self, distance, roads, prices=None, **trip_settings):
+        self.points = [Point(lon=14 + index / 100, lat=48) for index in range(1 + max(max(link) for link in roads))]
+        self.roads = {(0, len(self.points) - 1): distance, **roads}
+        self.prices = prices or {}
+        self.trip = Trip.model_validate({
+            "origin": self.points[0], "destination": self.points[-1], "fuel_type": "diesel",
+            "current_fuel_l": 5, "tank_capacity_l": 10, "consumption_l_per_100km": 10,
+            "arrival_reserve_l": 2, "minimum_buffer_l": 1, "max_detour_km": 0, **trip_settings,
+        })
+
+    def validate_trip(self, trip):
+        pass
+
+    def route_candidates(self, trip, direct):
+        return [Station(id=str(i), name=f"Station {i}", point=point, fuel_types=["diesel"], opening_hours="24/7")
+                for i, point in enumerate(self.points[1:-1], 1)]
+
+    def candidates(self, trip, direct):
+        # Only stations directly reachable from the origin are initial candidates.
+        return [station for station in self.route_candidates(trip, direct) if (0, int(station.id)) in self.roads]
+
+    def route(self, points):
+        nodes = [self.points.index(point) for point in points]
+        try:
+            legs = [self.roads[a, b] for a, b in zip(nodes, nodes[1:])]
+        except KeyError:
+            raise NoRoute() from None
+        return Route(distance_km=sum(legs), duration_s=sum(legs) * 60, leg_distances_km=legs,
+                     geometry={"type": "LineString", "coordinates": [p.coordinates() for p in points]},
+                     attribution="synthetic")
+
+    def quotes(self, fuel_type):
+        return [Quote(station_id=str(node), fuel_type=fuel_type, eur_per_l=price, observed_at=NOW)
+                for node, price in self.prices.items()]
+
+    def plan(self):
+        return plan(self.trip, self, self, self, mode="replay", now=NOW)
+
+
+@pytest.mark.parametrize("number_of_stops", [2, 20])
+def test_required_refueling_chain_without_prices(number_of_stops):
+    roads = {(0, 1): 40, **{(i, i + 1): 80 for i in range(1, number_of_stops + 1)}}
+    result = ChainReplay(40 + 80 * number_of_stops, roads).plan()
+    assert result.status == "prices_unavailable"
+    assert result.station is None
+    assert [stop.station.id for stop in result.stops] == [str(i) for i in range(1, number_of_stops + 1)]
+    assert result.route.leg_distances_km == [40, *([80] * number_of_stops)]
+    assert all(stop.arrival_fuel_l == 1 and stop.departure_fuel_l <= 10 for stop in result.stops)
+    assert result.arrival_fuel_l == 2
+    assert result.estimated_cost_eur is None
+
+
+def test_a_second_stop_can_reduce_cost_even_when_one_stop_is_feasible():
+    replay = ChainReplay(115, {(0, 1): 40, (1, 2): 50, (2, 3): 25, (1, 3): 75},
+                         prices={1: 2, 2: 1})
+    result = replay.plan()
+    assert result.status == "stop"
+    assert [stop.station.id for stop in result.stops] == ["1", "2"]
+    assert [stop.litres_to_buy for stop in result.stops] == [5, Decimal("3.5")]
+    assert result.estimated_cost_eur == Decimal("13.50")
+    assert result.arrival_fuel_l == 2
+
+
+def test_buy_more_now_to_avoid_fuel_at_the_expensive_next_stop():
+    replay = ChainReplay(140, {(0, 1): 40, (1, 2): 50, (2, 3): 50}, prices={1: 1, 2: 2})
+    result = replay.plan()
+    assert result.status == "stop"
+    assert [stop.litres_to_buy for stop in result.stops] == [9, 2]
+    assert result.stops[0].departure_fuel_l == 10
+    assert result.estimated_cost_eur == 13
+
+
+def test_max_detour_applies_to_the_whole_chain():
+    replay = ChainReplay(190, {(0, 1): 40, (1, 2): 80, (2, 3): 80}, max_detour_km=9)
+    result = replay.plan()
+    assert result.status == "no_feasible_stop"
+    assert result.stops == []
+
+
 @pytest.mark.parametrize("change", [
     {"current_fuel_l": 41}, {"consumption_l_per_100km": 0},
     {"arrival_reserve_l": -1}, {"minimum_buffer_l": 41},

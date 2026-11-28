@@ -204,6 +204,8 @@ select {
 .metrics > div { background: var(--well); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
 .metrics dt, .coverage { color: var(--muted); font-size: .875rem; }
 .metrics dd { margin: 1px 0 0; font-size: 1rem; font-weight: 680; }
+.fuel-stops { margin: 14px 0 0; padding-inline-start: 1.5rem; }
+.fuel-stops li { padding: 4px 0; }
 .price-note, .runner-up, .coverage { margin-top: 9px; }
 .price-note { color: var(--amber); }
 .runner-up { color: #e2d2ff; }

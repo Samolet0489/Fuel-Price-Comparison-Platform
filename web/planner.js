@@ -29,6 +29,7 @@ const errorMessages = {
     no_route: "No drivable route was found between those points.",
     border_restricted_route: "The routing service chose a road outside Austria. Try another trip.",
     routing_unavailable: "Road routing is unavailable. Check that OSRM is running.",
+    planning_search_unavailable: "The fuel-stop search ran out of time. Try a smaller maximum detour or a shorter trip.",
     boundary_unavailable: "The worker could not read the Austrian map boundary.",
     stations_unavailable: "The station catalogue is unavailable. Check the worker’s local data.",
     station_capacity_unavailable: "The online station lookup returned too many matches. Use the local station catalogue.",
@@ -161,7 +162,10 @@ function drawTrip(start, end, result) {
     }
     marker(locations[start], `Origin · ${start}`, "A", "start");
     marker(locations[end], `Destination · ${end}`, "B", "end");
-    if (result?.station) marker(result.station.point, `Fuel stop · ${result.station.name}`, "F", "fuel");
+    const stops = result?.stops?.length ? result.stops.map((stop) => stop.station) :
+        result?.station ? [result.station] : [];
+    stops.forEach((station, index) => marker(station.point, `Stop ${index + 1} · ${station.name}`,
+        stops.length > 1 ? String(index + 1) : "F", "fuel"));
     routeBounds = mapLayers.getBounds();
     fitButton.disabled = !routeBounds.isValid();
     if (stationsButton.getAttribute("aria-pressed") !== "true") fitRoute();
@@ -184,11 +188,14 @@ function showNote(id, message) {
 }
 
 function showResult(start, end, trip, result) {
+    const stops = result.stops ?? [];
+    const multiStop = stops.length > 1;
+    const stopTitle = multiStop ? `${stops.length} refueling stops` : result.station?.name;
     const outcomes = {
         direct: ["Direct route", "No fuel stop needed"],
-        stop: ["Lowest estimated cost", result.station?.name],
-        prices_unavailable: ["Least-detour stop", result.station?.name],
-        no_feasible_stop: ["No fuel stop found", "No feasible single stop"],
+        stop: [result.ranking_complete ? "Lowest estimated cost" : "Estimated cost", stopTitle],
+        prices_unavailable: [multiStop ? "Refueling route" : "Least-detour stop", stopTitle],
+        no_feasible_stop: ["No fuel stop found", "No feasible refueling plan"],
     };
     const [outcome, title] = outcomes[result.status];
     byId("outcome").textContent = outcome;
@@ -200,17 +207,33 @@ function showResult(start, end, trip, result) {
         addMetric("Distance", distance(result.route.distance_km));
         addMetric("Driving time", `${Math.round(Number(result.route.duration_s) / 60)} min`);
     }
-    if (result.station) {
-        addMetric("Buy", `${litres.format(result.litres_to_buy)} L`);
+    if (result.station || multiStop) {
+        addMetric(multiStop ? "Total to buy" : "Buy", `${litres.format(result.litres_to_buy)} L`);
         addMetric("Detour", distance(result.detour_km));
         addMetric("Est. cost", result.estimated_cost_eur == null ? "Unavailable" : euros.format(result.estimated_cost_eur));
     }
     if (result.price_eur_per_l != null) addMetric("Price per litre", unitPrice.format(result.price_eur_per_l));
     if (result.arrival_fuel_l != null) addMetric("Arrival fuel", `${litres.format(result.arrival_fuel_l)} L`);
 
+    const stopList = byId("fuel-stops");
+    stopList.replaceChildren();
+    stopList.hidden = !multiStop;
+    if (multiStop) {
+        for (const stop of stops) {
+            const item = document.createElement("li");
+            const station = document.createElement("strong");
+            station.textContent = stop.station.name;
+            const price = stop.price_eur_per_l == null ? "" : ` · ${unitPrice.format(stop.price_eur_per_l)}/L`;
+            item.append(station, ` · Buy ${litres.format(stop.litres_to_buy)} L${price}`);
+            stopList.append(item);
+        }
+    }
+
     let priceNote = "";
-    if (result.status === "prices_unavailable") priceNote = "No usable fuel prices. This stop adds the least driving distance.";
-    if (result.status === "stop" && !result.ranking_complete) priceNote = "Lowest cost among feasible stations with usable prices.";
+    if (result.status === "prices_unavailable") priceNote = multiStop ?
+        "A complete fuel price estimate is unavailable for this route." :
+        "No usable fuel prices. This stop adds the least driving distance.";
+    if (result.status === "stop" && !result.ranking_complete) priceNote = "The price comparison is incomplete.";
     if (result.status === "no_feasible_stop") priceNote = "The stations checked did not meet the trip’s fuel and detour requirements.";
     showNote("price-note", priceNote);
     const next = result.runner_up;
@@ -221,8 +244,8 @@ function showResult(start, end, trip, result) {
         `${result.stations_compared} checked · ${result.feasible_stations} feasible · ${result.priced_stations} priced`);
 
     const maps = byId("open-maps");
-    maps.hidden = !result.route;
-    if (result.route) {
+    maps.hidden = !result.route || multiStop;
+    if (!maps.hidden) {
         const coordinates = ({ lat, lon }) => `${lat},${lon}`;
         const url = new URL("https://www.google.com/maps/dir/");
         url.search = new URLSearchParams({

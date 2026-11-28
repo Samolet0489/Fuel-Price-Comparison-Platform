@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -15,6 +16,13 @@ class Point(Model):
 
     def coordinates(self):
         return [self.lon, self.lat]
+
+    def distance_km(self, other: "Point") -> float:
+        lat1, lat2 = math.radians(self.lat), math.radians(other.lat)
+        dlon = math.radians(other.lon - self.lon)
+        haversine = (math.sin((lat2 - lat1) / 2) ** 2
+                     + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2)
+        return 6371.0088 * 2 * math.asin(math.sqrt(min(1, haversine)))
 
 
 class Trip(Model):
@@ -82,11 +90,21 @@ class PricedStop(Model):
     price_timestamp: datetime
 
 
+class FuelStop(Model):
+    station: Station
+    arrival_fuel_l: Decimal
+    litres_to_buy: Decimal
+    departure_fuel_l: Decimal
+    price_eur_per_l: Decimal | None = None
+    price_timestamp: datetime | None = None
+
+
 class Plan(Model):
     status: Literal["direct", "stop", "no_feasible_stop", "prices_unavailable"]
     mode: Literal["live", "replay"]
     route: Route | None = None
     station: Station | None = None
+    stops: list[FuelStop] = Field(default_factory=list)
     litres_to_buy: Decimal | None = None
     estimated_cost_eur: Decimal | None = None
     arrival_fuel_l: Decimal | None = None

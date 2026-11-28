@@ -1,6 +1,6 @@
 # Fuel Price Comparison Platform
 
-This repository implements an **Austrian single-stop fuel planner** and a public
+This repository implements an **Austrian fuel planner** and a public
 trip API backed by **PostgreSQL**. The controller dispatches trip jobs to the
 planner, which uses **local OSRM in Docker** for real road routing. No routing
 account or API key is required. The map UI submits trips through the public API.
@@ -61,6 +61,19 @@ Open [public API documentation](http://127.0.0.1:8001/docs). A
 `QUEUED`, `RUNNING`, `SUCCEEDED`, or `FAILED`, with timestamps and the
 finished result or error. `prices_unavailable` is a successful planning
 outcome when the worker found a feasible stop.
+
+Refueling results include an ordered `stops` array with each station, arrival
+fuel, amount to buy, and departure fuel. The map numbers the stops on the route.
+Trips with one stop still include the top-level `station` field. Multi-stop
+search uses the local OSM catalogue and checks road reachability, the fuel buffer
+at each stop, the destination reserve, and the trip's total detour limit.
+With usable quotes, it compares the cost of buying across multiple stations
+against any priced single stop. The response flags incomplete price comparisons.
+
+To try a trip that needs two stops, select Vienna to Graz and enter diesel,
+8 L of current fuel, an 8.5 L tank, consumption of 10 L/100 km, a 2 L arrival
+reserve, and a 15 km maximum detour. With the prepared Austria catalogue and
+no price feed, expect two numbered stations and a planned purchase at each one.
 
 ```powershell
 uv run --frozen python -m scripts.check_trip_jobs

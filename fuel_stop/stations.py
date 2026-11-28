@@ -1,6 +1,5 @@
 """Local, dated OSM station catalogue. No runtime network dependency."""
 import json
-import math
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -25,13 +24,6 @@ def from_tags(osm_id: str, tags: dict, point: Point) -> Station | None:
         return None
     return Station(id=osm_id, name=tags.get("name", tags.get("brand", "Unnamed station")),
                    point=point, fuel_types=fuels, opening_hours="24/7", source=SOURCE)
-
-
-def distance_km(a: Point, b: Point) -> float:
-    lat1, lat2 = math.radians(a.lat), math.radians(b.lat)
-    dlat, dlon = lat2 - lat1, math.radians(b.lon - a.lon)
-    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return 6371.0088 * 2 * math.asin(math.sqrt(min(1, h)))
 
 
 class LocalStations:
@@ -65,7 +57,9 @@ class LocalStations:
     def candidates(self, trip: Trip, direct) -> list[Station]:
         radius = float(max(Decimal(0), trip.current_fuel_l - trip.minimum_buffer_l)
                        * 100 / trip.consumption_l_per_100km) + 1
-        matches = [s for s in self.load() if trip.fuel_type in s.fuel_types
-                   and self.boundary.covers_point(s.point)
-                   and distance_km(trip.origin, s.point) <= radius]
-        return sorted(matches, key=lambda s: s.id)
+        return [s for s in self.route_candidates(trip, direct) if trip.origin.distance_km(s.point) <= radius]
+
+    def route_candidates(self, trip: Trip, direct) -> list[Station]:
+        # Later stops may be beyond the range of the fuel already in the tank.
+        return sorted((s for s in self.load() if trip.fuel_type in s.fuel_types
+                       and self.boundary.covers_point(s.point)), key=lambda s: s.id)
