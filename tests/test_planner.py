@@ -363,6 +363,33 @@ def test_distance_table_proposal_is_repriced_or_discarded_after_road_verificatio
     assert result.arrival_fuel_l == 2
 
 
+def test_priced_table_retries_with_full_fuel_states_after_no_proposal(monkeypatch):
+    replay = ChainReplay(115, {(0, 1): 40, (1, 2): 50, (2, 3): 25, (1, 3): 75},
+                         prices={1: 2, 2: 1})
+
+    def distance_table(points, deadline):
+        nodes = [replay.points.index(point) for point in points]
+        return {(i, j): replay.roads.get((start, end))
+                for i, start in enumerate(nodes[:-1]) for j, end in enumerate(nodes[1:], 1)}
+
+    replay.distance_table = distance_table
+    original_search = RefuelingSearch._search
+    passes = []
+
+    def search(self, targets, prices, optimize, beat_cost, *, merge_remainders=False):
+        passes.append(merge_remainders)
+        if merge_remainders:
+            return None
+        return original_search(self, targets, prices, optimize, beat_cost)
+
+    monkeypatch.setattr(RefuelingSearch, "_search", search)
+    result = replay.plan()
+
+    assert passes == [True, False]
+    assert result.ranking_complete
+    assert result.estimated_cost_eur == Decimal("13.50")
+
+
 def test_feasible_chain_keeps_its_prices_if_optimization_times_out(monkeypatch):
     replay = ChainReplay(140, {(0, 1): 40, (1, 2): 50, (2, 3): 50}, prices={1: 1, 2: 2})
     original = RefuelingSearch.search

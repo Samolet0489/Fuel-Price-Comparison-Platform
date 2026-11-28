@@ -77,7 +77,7 @@ def main():
     parser.add_argument("--api-url", default="http://127.0.0.1:8001")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--expect-unpriced", action="store_true", help="check the fallback in observed price mode")
-    mode.add_argument("--check-ranking", action="store_true", help="require complete Vienna–Graz and Salzburg–Linz rankings")
+    mode.add_argument("--check-ranking", action="store_true", help="require complete rankings for single- and multi-stop trips")
     args = parser.parse_args()
     with httpx.Client(base_url=args.api_url, timeout=5) as client:
         check_trip(client, "direct-trip.json", "direct")
@@ -96,6 +96,20 @@ def main():
                 "origin": {"lon": 13.0449, "lat": 47.80938},
                 "destination": {"lon": 14.2858, "lat": 48.2914},
             })
+            print("Vienna–Graz multi-stop price comparison")
+            multi_stop = check_trip(client, "trip.json", "stop", require_complete=True, updates={
+                "current_fuel_l": 8,
+                "tank_capacity_l": 8.5,
+                "consumption_l_per_100km": 10,
+                "arrival_reserve_l": 2,
+                "max_detour_km": 15,
+            })
+            purchases = [Decimal(stop["litres_to_buy"]) for stop in multi_stop["stops"]]
+            if len(purchases) < 2 or any(purchase <= 0 for purchase in purchases):
+                raise RuntimeError("Expected at least two refueling stops with positive purchases")
+            if multi_stop["estimated_cost_eur"] is None or sum(purchases) != Decimal(multi_stop["litres_to_buy"]):
+                raise RuntimeError("The multi-stop route must report its estimated cost and total purchase")
+            print(f"{len(purchases)} refueling stops, estimated cost EUR {multi_stop['estimated_cost_eur']}")
 
 
 if __name__ == "__main__":

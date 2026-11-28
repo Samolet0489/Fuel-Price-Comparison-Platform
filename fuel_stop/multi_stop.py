@@ -89,8 +89,19 @@ class RefuelingSearch:
             if distances is not None:
                 self.table = {(nodes[a], nodes[b]): distance for (a, b), distance in distances.items()}
                 self.checked.update(self.stations[i].id for i in prices)
+        # Try finding a cheaper route before distinguishing every millilitre
+        # remainder. Each proposal still uses exact fuel and is road-verified.
+        # If this pass finds no improvement, retain the full comparison.
+        merge_remainders = (
+            self.table is not None and bool(prices) and beat_cost is not None and
+            (self.trip.tank_capacity_l - self.trip.current_fuel_l) * min(prices.values()) < beat_cost
+        )
         while True:
-            winner = self._search(targets, prices, quotes is not None, beat_cost)
+            winner = self._search(targets, prices, quotes is not None, beat_cost,
+                                  merge_remainders=merge_remainders)
+            if winner is None and merge_remainders:
+                merge_remainders = False
+                continue
             if self.table is None or winner is None or self.verify(winner):
                 return winner
 
@@ -169,7 +180,7 @@ class RefuelingSearch:
             arrival = arrival.previous
         return valid
 
-    def _search(self, targets, prices, optimize, beat_cost) -> Arrival | None:
+    def _search(self, targets, prices, optimize, beat_cost, *, merge_remainders=False) -> Arrival | None:
         """Prioritize price estimates or, without prices, progress toward the destination.
 
         The priced search proposes routes using minimum and full purchases.
@@ -248,7 +259,7 @@ class RefuelingSearch:
                 end = tuple(route.geometry["coordinates"][-1]) if route else (arrival.previous.node,)
             # Whole-millilitre purchases leave this remainder invariant for a
             # given path. Compare labels with the same attainable fuel levels.
-            remainder = arrival.fuel % ML if capacity_can_bind else ZERO
+            remainder = arrival.fuel % ML if capacity_can_bind and not merge_remainders else ZERO
             key = (arrival.node, end, remainder)
             frontier = arrivals.setdefault(key, [])
             if target is None:
