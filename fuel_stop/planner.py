@@ -127,7 +127,7 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
     common.update(priced_stations=len(ranked), ranking_complete=len(ranked) == len(feasible),
                   price_source=prices.source, price_retrieved_at=prices.retrieved_at)
     ranked.sort(key=lambda row: row[:4])
-    chain = search.result(fallback) if fallback is not None else None
+    chain = search.result(fallback, valid) if fallback is not None else None
     known_cost = ranked[0][0] if ranked else (chain_cost(chain[0], valid) if chain else None)
     if valid and route_candidates is not None:
         if search is None:
@@ -141,7 +141,10 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
                 priced = None
                 common["ranking_complete"] = False
             if priced is not None:
-                chain = search.result(priced, optimized=True)
+                proposal = search.result(priced, valid)
+                proposal_cost = chain_cost(proposal[0], valid)
+                if proposal_cost is not None and (known_cost is None or proposal_cost < known_cost):
+                    chain = proposal
     if chain is not None:
         return chain_plan(search, chain, direct, common, compared, feasible, ranked, valid)
     if search is not None:
@@ -173,7 +176,7 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
                 litres_to_buy=buy, estimated_cost_eur=estimated_cost, runner_up=runner_up, savings_eur=savings,
                 arrival_fuel_l=arrival, detour_km=detour, price_eur_per_l=quote.eur_per_l,
                 price_timestamp=quote.observed_at,
-                message="Lowest purchase cost among priced feasible candidates; check ranking_complete for missing prices")
+                message="Estimated fuel purchase cost for the recommended route")
 
 
 def single_stop(station, route, trip, buy, quote=None):
@@ -231,5 +234,5 @@ def chain_plan(search, chain, direct, common, compared, feasible, ranked, quotes
                 arrival_fuel_l=fuel, detour_km=detour,
                 estimated_cost_eur=cost, price_eur_per_l=first.price_eur_per_l if first else None,
                 price_timestamp=first.price_timestamp if first else None,
-                message=("Lowest purchase cost found among routes with usable prices" if priced
+                message=("Estimated fuel purchase cost for the recommended route" if priced
                          else "No fully priced plan found; showing a feasible refueling route"))

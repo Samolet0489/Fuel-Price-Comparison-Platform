@@ -312,7 +312,7 @@ function showResult(start, end, trip, result) {
     const stopTitle = multiStop ? `${stops.length} refueling stops` : result.station?.name;
     const outcomes = {
         direct: ["Direct route", "No fuel stop needed"],
-        stop: [result.ranking_complete ? "Lowest estimated cost" : "Estimated cost", stopTitle],
+        stop: ["Estimated cost", stopTitle],
         prices_unavailable: [multiStop ? "Refueling route" : "Least-detour stop", stopTitle],
         no_feasible_stop: ["No fuel stop found", "No feasible refueling plan"],
     };

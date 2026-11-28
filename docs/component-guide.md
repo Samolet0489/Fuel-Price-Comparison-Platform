@@ -142,8 +142,9 @@ returned routes, not all possible domestic road alternatives.
 `stations_compared` counts matching, known-24/7 candidates whose road routes were
 evaluated, including unreachable candidates. `feasible_stations` counts those that
 pass fuel and detour constraints. `priced_stations` counts feasible stops with a
-fresh usable quote. `ranking_complete=false` means some feasible stops have unknown
-prices; the UI must say "best among priced candidates", not "cheapest overall".
+fresh usable quote. `ranking_complete=false` signals missing prices or an unfinished
+price comparison. The UI displays the estimated purchase cost of the recommended
+route. The multi-stop search can leave cheaper station sequences unexplored.
 
 When at least two feasible stops have usable quotes, `runner_up` contains the next
 stop under the same ranking rules, and `savings_eur` is the difference between

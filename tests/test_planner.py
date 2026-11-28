@@ -304,6 +304,29 @@ def test_buy_more_now_to_avoid_fuel_at_the_expensive_next_stop():
     assert result.estimated_cost_eur == 13
 
 
+@pytest.mark.parametrize("use_table", [False, True])
+def test_partial_fill_can_cover_multiple_legs_at_the_cheaper_price(use_table):
+    roads = {(0, 1): 40, (1, 2): 50, (2, 3): 60, (3, 4): 15, (2, 4): 100}
+    replay = ChainReplay(165, roads, prices={1: 2, 2: 1, 3: 3})
+
+    if use_table:
+        def distance_table(points, deadline):
+            nodes = [replay.points.index(point) for point in points]
+            return {(i, j): replay.roads.get((start, end))
+                    for i, start in enumerate(nodes[:-1]) for j, end in enumerate(nodes[1:], 1)}
+
+        replay.distance_table = distance_table
+
+    result = replay.plan()
+
+    assert result.status == "stop"
+    assert [stop.station.id for stop in result.stops] == ["1", "2"]
+    assert [stop.litres_to_buy for stop in result.stops] == [5, Decimal("8.5")]
+    assert result.estimated_cost_eur == Decimal("18.50")
+    assert result.arrival_fuel_l == 2
+    assert result.route.leg_distances_km == [40, 50, 75]
+
+
 @pytest.mark.parametrize("real_leg", [50, None])
 def test_distance_table_proposal_is_repriced_or_discarded_after_road_verification(real_leg):
     roads = {(0, 1): 40, (2, 3): 25, (1, 3): 75}
@@ -354,7 +377,7 @@ def test_feasible_chain_keeps_its_prices_if_optimization_times_out(monkeypatch):
     assert result.status == "stop"
     assert result.ranking_complete is False
     assert [stop.price_eur_per_l for stop in result.stops] == [1, 2]
-    assert result.estimated_cost_eur == 17
+    assert result.estimated_cost_eur == 13
 
 
 def test_max_detour_applies_to_the_whole_chain():

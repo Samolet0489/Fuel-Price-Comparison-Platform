@@ -26,7 +26,6 @@ class SearchTimedOut(Exception):
 class Leg:
     target: int
     distance_km: Decimal
-    bought: Decimal
     route: Route | None
 
 
@@ -173,8 +172,8 @@ class RefuelingSearch:
     def _search(self, targets, prices, optimize, beat_cost) -> Arrival | None:
         """Prioritize price estimates or, without prices, progress toward the destination.
 
-        A priced departure buys enough to reach the next stop or fills the tank.
-        Carrying extra fuel pays off when it replaces purchases at pricier stops.
+        The priced search proposes routes using minimum and full purchases.
+        The purchase amounts are optimized separately on the verified routes.
         Without quotes, a full departure suffices to test reachability.
         """
         destination = self.destination
@@ -286,26 +285,53 @@ class RefuelingSearch:
             for buy in amounts:
                 enqueue(Arrival(target, remaining + buy, arrival.distance + distance,
                                 arrival.cost + buy * prices.get(arrival.node, ZERO),
-                                arrival, Leg(target, distance, buy, route)))
+                                arrival, Leg(target, distance, route)))
         return None
 
-    def result(self, arrival: Arrival, *, optimized: bool = False):
+    def fuel_targets(self, legs: list[Leg], prices: list[Decimal]) -> list[Decimal]:
+        """Required departure fuel to reach the next station priced no higher."""
+        targets = [self.trip.minimum_buffer_l] * len(legs)
+        for departure in range(1, len(legs)):
+            burn = ZERO
+            for index in range(departure, len(legs)):
+                leg = legs[index]
+                burn += leg.route.distance_km * self.rate
+                if leg.target == self.destination:
+                    reserve = self.trip.arrival_reserve_l
+                else:
+                    reserve = self.trip.minimum_buffer_l
+                targets[departure] = max(targets[departure], burn + reserve)
+                if leg.target == self.destination or prices[index] <= prices[departure - 1]:
+                    break
+        return targets
+
+    def result(self, arrival: Arrival, quotes: dict[str, Quote] | None = None):
         legs = []
         while arrival.leg is not None:
             legs.append(arrival.leg)
             arrival = arrival.previous
+        legs.reverse()
+        targets = None
+        station_ids = [self.stations[leg.target].id for leg in legs[:-1]]
+        if quotes is not None and all(station_id in quotes for station_id in station_ids):
+            targets = self.fuel_targets(legs, [quotes[station_id].eur_per_l for station_id in station_ids])
         stops = []
         coordinates = []
         distances = []
         distance_since_stop = duration = ZERO
         fuel = self.trip.current_fuel_l
         node = 0
-        for leg in reversed(legs):
+        for index, leg in enumerate(legs):
             distance = leg.route.distance_km
             burn = distance * self.rate
             reserve = self.trip.arrival_reserve_l if leg.target == self.destination else self.trip.minimum_buffer_l
-            buy = leg.bought if optimized else max(ZERO, burn + reserve - fuel).quantize(ML, rounding=ROUND_CEILING)
             station = self.stations[node]
+            buy = ZERO
+            if station is not None:
+                required = targets[index] if targets is not None else burn + reserve
+                needed = max(ZERO, required - fuel).quantize(ML, rounding=ROUND_CEILING)
+                capacity = (self.trip.tank_capacity_l - fuel).quantize(ML, rounding=ROUND_FLOOR)
+                buy = min(needed, capacity)
             if station is not None and buy > 0:
                 stops.append(FuelStop(station=station, arrival_fuel_l=fuel, litres_to_buy=buy,
                                       departure_fuel_l=fuel + buy))

@@ -70,7 +70,10 @@ Trips with one stop still include the top-level `station` field. Multi-stop
 search uses the local OSM catalogue and checks road reachability, the fuel buffer
 at each stop, the destination reserve, and the trip's total detour limit.
 With usable quotes, it compares the cost of buying across multiple stations
-against any priced single stop. The response flags incomplete price comparisons.
+against priced single stops. On a fully priced route it can recommend a partial
+fill that covers multiple legs. The map shows an estimated fuel cost. The
+`ranking_complete` flag reports price coverage and whether the comparison ran
+to completion. Route search can leave cheaper station sequences unexplored.
 
 To try a trip that needs two stops, select Vienna to Graz and enter diesel,
 8 L of current fuel, an 8.5 L tank, consumption of 10 L/100 km, a 2 L arrival
