@@ -164,6 +164,43 @@ def test_default_local_station_plan_compares_all_candidates(tmp_path, monkeypatc
         assert payload["station_source"] == SOURCE
 
 
+def test_multi_stop_plan_includes_timestamp_from_local_catalogue(tmp_path, monkeypatch):
+    origin, first, second, destination = [(lon, 48.0) for lon in (14.0, 14.5, 15.5, 16.0)]
+    stations = [
+        from_tags(f"node/{ident}", TAGS, Point(lon=lon, lat=lat)).model_dump(mode="json")
+        for ident, (lon, lat) in enumerate([first, second], 1)
+    ]
+    monkeypatch.setenv("STATION_SOURCE", "local")
+    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(catalogue(tmp_path, stations)))
+    monkeypatch.setenv("PRICE_MODE", "observed")
+    monkeypatch.delenv("PRICE_FEED_URL", raising=False)
+    monkeypatch.delenv("PRICE_SNAPSHOT_FILE", raising=False)
+    roads = {(origin, destination): 200000, (origin, first): 40000,
+             (first, second): 80000, (second, destination): 80000}
+
+    def handler(request):
+        path = request.url.path.rsplit("/", 1)[1]
+        points = [tuple(map(float, coordinate.split(","))) for coordinate in path.split(";")]
+        distance = roads.get(tuple(points))
+        if distance is None:
+            return httpx.Response(200, json={"code": "NoRoute"})
+        return httpx.Response(200, json=osrm_response(points, [distance]))
+
+    trip = {
+        **TRIP, "origin": dict(zip(("lon", "lat"), origin)), "destination": dict(zip(("lon", "lat"), destination)),
+        "current_fuel_l": 5, "tank_capacity_l": 10, "consumption_l_per_100km": 10, "arrival_reserve_l": 2,
+    }
+    with TestClient(app) as http, httpx.Client(transport=httpx.MockTransport(handler)) as upstream:
+        app.state.client = upstream
+        response = http.post("/plan", json=trip)
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "prices_unavailable"
+    assert [stop["station"]["id"] for stop in result["stops"]] == ["node/1", "node/2"]
+    assert result["station_source"] == SOURCE
+    assert result["station_data_timestamp"] == "2026-11-01T00:00:00Z"
+
+
 def test_overpass_failure_has_safe_reason(caplog):
     with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(502, text="Provider queue full"))) as http:
         with pytest.raises(DependencyUnavailable) as error:

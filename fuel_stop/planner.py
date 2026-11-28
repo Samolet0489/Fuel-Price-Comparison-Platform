@@ -85,9 +85,6 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
         arrival = remaining + buy - route.leg_distances_km[1] * rate
         feasible.append((station, route, buy, arrival, detour))
 
-    common = dict(mode=mode, stations_compared=len(compared), feasible_stations=len(feasible),
-                  station_source=getattr(stations, "source", None),
-                  station_data_timestamp=getattr(stations, "data_timestamp", None))
     search = None
     fallback = None
     if not feasible and route_candidates is not None:
@@ -96,6 +93,10 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
             fallback = search.search()
         except SearchTimedOut:
             raise DependencyUnavailable("planning_search", "multi_stop_search_timeout") from None
+    # Trips that need multiple stops may only load the catalogue during fallback search.
+    common = dict(mode=mode, stations_compared=len(compared), feasible_stations=len(feasible),
+                  station_source=getattr(stations, "source", None),
+                  station_data_timestamp=getattr(stations, "data_timestamp", None))
     if not feasible and fallback is None:
         if search is not None:
             common["stations_compared"] = len(compared | search.checked)
