@@ -41,7 +41,7 @@ const endpointControls = [
 ];
 const customValue = "custom";
 let picking = null;
-let selectionVersion = 0;
+let tripInputsVersion = 0;
 
 const number = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
 const litres = new Intl.NumberFormat("en", { maximumFractionDigits: 3 });
@@ -143,11 +143,11 @@ function pickPoint(latlng) {
     if (!picking) return;
     const { lat, lng } = map.wrapLatLng(latlng);
     setEndpoint(picking, { point: { lat, lon: lng }, value: customValue });
-    endpointsChanged(false);
+    tripInputsChanged(false);
 }
 
-function endpointsChanged(fit = true) {
-    selectionVersion += 1;
+function tripInputsChanged(fit = true) {
+    tripInputsVersion += 1;
     setPicking(null);
     resultPanel.hidden = true;
     const [start, end] = endpointControls.map(selectedEndpoint);
@@ -397,7 +397,7 @@ async function planTrip(event) {
     event.preventDefault();
     setPicking(null);
     const [start, end] = endpointControls.map(selectedEndpoint);
-    const version = selectionVersion;
+    const version = tripInputsVersion;
     const values = new FormData(form);
     if (start.point.lat === end.point.lat && start.point.lon === end.point.lon) {
         setProgress("Choose a different destination.", "error");
@@ -436,20 +436,20 @@ async function planTrip(event) {
             RUNNING: "Checking roads and fuel stops…",
         };
         let job = receipt;
-        while (version === selectionVersion && explainWait[job.status] && performance.now() < deadline) {
+        while (version === tripInputsVersion && explainWait[job.status] && performance.now() < deadline) {
             if (progress.textContent !== explainWait[job.status]) setProgress(explainWait[job.status], "pending");
             await new Promise((resolve) => setTimeout(resolve, 600));
-            if (version !== selectionVersion) return;
+            if (version !== tripInputsVersion) return;
             job = await request(`/trip-plans/${encodeURIComponent(receipt.id)}`);
         }
-        if (version !== selectionVersion) return;
+        if (version !== tripInputsVersion) return;
         if (job.status === "FAILED") throw new Error(errorMessages[job.error?.status] || "The worker couldn’t plan this trip.");
         if (job.status !== "SUCCEEDED") throw new Error("The trip is still processing. Try again shortly.");
         if (!fulfilled.has(job.result?.status)) throw new Error("The worker returned an unrecognized result.");
         showResult(start, end, trip, job.result);
         setProgress("Trip checked", "complete");
     } catch (error) {
-        if (version !== selectionVersion) return;
+        if (version !== tripInputsVersion) return;
         setProgress(error.name === "TypeError" || error.name === "TimeoutError"
             ? "Couldn’t reach the local trip API. Check that Docker is running."
             : error.message, "error");
@@ -468,8 +468,9 @@ function runExample(fuel) {
 }
 
 form.addEventListener("submit", planTrip);
+form.querySelector(".vehicle").addEventListener("input", () => tripInputsChanged(false));
 for (const control of endpointControls) {
-    control.select.addEventListener("change", () => endpointsChanged());
+    control.select.addEventListener("change", () => tripInputsChanged());
     control.button.addEventListener("click", () => setPicking(picking === control ? null : control));
 }
 mapElement.addEventListener("keydown", (event) => {
@@ -491,7 +492,7 @@ byId("swap").addEventListener("click", () => {
     const [start, end] = endpointControls.map(selectedEndpoint);
     setEndpoint(endpointControls[0], end);
     setEndpoint(endpointControls[1], start);
-    endpointsChanged();
+    tripInputsChanged();
 });
 byId("example-stop").addEventListener("click", () => runExample(8));
 byId("example-direct").addEventListener("click", () => runExample(35));
