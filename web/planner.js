@@ -6,6 +6,7 @@ const origin = byId("origin");
 const destination = byId("destination");
 const progress = byId("progress");
 const resultPanel = byId("result");
+const mapElement = byId("map");
 const mapNotice = byId("map-notice");
 const fitButton = byId("fit-route");
 const stationsButton = byId("all-stations");
@@ -13,10 +14,34 @@ const stationStatus = byId("station-status");
 const regenerateButton = byId("regenerate-prices");
 const busyButtons = ["submit", "example-stop", "example-direct", "regenerate-prices"].map(byId);
 const locations = {
-    Vienna: { lon: 16.3692842, lat: 48.2024484 },
+    Amstetten: { lon: 14.870913, lat: 48.122971 },
+    Baden: { lon: 16.233679, lat: 48.006164 },
+    Bregenz: { lon: 9.746725, lat: 47.503517 },
+    Dornbirn: { lon: 9.741718, lat: 47.4125 },
+    Eisenstadt: { lon: 16.527177, lat: 47.846391 },
+    Feldkirch: { lon: 9.598142, lat: 47.237781 },
     Graz: { lon: 15.4392, lat: 47.0667 },
+    Innsbruck: { lon: 11.397995, lat: 47.269169 },
+    Klagenfurt: { lon: 14.308586, lat: 46.624293 },
+    "Krems an der Donau": { lon: 15.613201, lat: 48.410925 },
+    Kufstein: { lon: 12.168576, lat: 47.583471 },
+    Leoben: { lon: 15.096067, lat: 47.381222 },
     Linz: { lon: 14.2858, lat: 48.2914 },
+    Salzburg: { lon: 13.045229, lat: 47.809408 },
+    "St. Pölten": { lon: 15.623475, lat: 48.203198 },
+    Steyr: { lon: 14.420629, lat: 48.039795 },
+    Vienna: { lon: 16.3692842, lat: 48.2024484 },
+    Villach: { lon: 13.847981, lat: 46.616059 },
+    Wels: { lon: 14.025099, lat: 48.15764 },
+    "Wiener Neustadt": { lon: 16.240706, lat: 47.812719 },
 };
+const endpointControls = [
+    { select: origin, button: byId("pick-origin"), pinLabel: "Start pin", role: "start" },
+    { select: destination, button: byId("pick-destination"), pinLabel: "Destination pin", role: "destination" },
+];
+const customValue = "custom";
+let picking = null;
+let selectionVersion = 0;
 
 const number = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
 const litres = new Intl.NumberFormat("en", { maximumFractionDigits: 3 });
@@ -43,9 +68,10 @@ const errorMessages = {
     generated_prices_disabled: "Price regeneration is available when generated station prices are active.",
 };
 
-for (const select of [origin, destination]) {
+for (const { select } of endpointControls) {
     for (const city of Object.keys(locations)) select.add(new Option(city, city));
 }
+origin.value = "Vienna";
 destination.value = "Graz";
 
 let map;
@@ -55,11 +81,13 @@ let stationLayer;
 let stationRenderer;
 let stationPrices;
 if (window.L) {
-    map = L.map("map", { scrollWheelZoom: false }).setView([47.65, 14.9], 7);
+    map = L.map(mapElement, { scrollWheelZoom: false }).setView([47.65, 14.9], 7);
     mapLayers = L.featureGroup().addTo(map);
     map.createPane("stationCatalogue").style.zIndex = "350";
     stationRenderer = L.canvas({ pane: "stationCatalogue" });
     stationsButton.disabled = false;
+    endpointControls.forEach(({ button }) => { button.disabled = false; });
+    map.on("click", ({ latlng }) => pickPoint(latlng));
     map.attributionControl.setPrefix(false);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
@@ -79,6 +107,53 @@ if (window.L) {
 function setProgress(message, state) {
     progress.textContent = message;
     progress.dataset.state = state;
+}
+
+function selectedEndpoint({ select, point, pinLabel }) {
+    return select.value === customValue ? { point, label: pinLabel, value: customValue } :
+        { point: locations[select.value], label: select.value, value: select.value };
+}
+
+function setEndpoint(control, { point, value }) {
+    if (value === customValue) {
+        control.point = point;
+        if (!control.customOption) {
+            control.customOption = new Option("", customValue);
+            control.select.add(control.customOption);
+        }
+        control.customOption.textContent = `${control.pinLabel} (${point.lat.toFixed(4)}, ${point.lon.toFixed(4)})`;
+    }
+    control.select.value = value;
+}
+
+function setPicking(control) {
+    picking = control;
+    endpointControls.forEach((item) => item.button.setAttribute("aria-pressed", String(item === control)));
+    mapElement.classList.toggle("is-picking", Boolean(control));
+    showNote("map-pick-hint", control ?
+        `Click a road to set the ${control.role}. You can also pan with the arrow keys and press Enter.` : "");
+    if (control) {
+        map.closePopup();
+        mapElement.scrollIntoView({ block: "nearest" });
+        mapElement.focus({ preventScroll: true });
+    }
+}
+
+function pickPoint(latlng) {
+    if (!picking) return;
+    const { lat, lng } = map.wrapLatLng(latlng);
+    setEndpoint(picking, { point: { lat, lon: lng }, value: customValue });
+    endpointsChanged(false);
+}
+
+function endpointsChanged(fit = true) {
+    selectionVersion += 1;
+    setPicking(null);
+    resultPanel.hidden = true;
+    const [start, end] = endpointControls.map(selectedEndpoint);
+    byId("route-caption").textContent = `${start.label} to ${end.label}`;
+    drawTrip(start, end, null, fit);
+    setProgress("Ready to plan", "");
 }
 
 function fitRoute() {
@@ -189,7 +264,7 @@ function marker(point, text, symbol, kind) {
         .addTo(mapLayers);
 }
 
-function drawTrip(start, end, result) {
+function drawTrip(start, end, result, fit = true) {
     byId("alternate-legend").hidden = !result?.runner_up || !map;
     if (!map) return;
     mapLayers.clearLayers();
@@ -204,15 +279,15 @@ function drawTrip(start, end, result) {
         L.geoJSON(result.route.geometry, { style: { color: "#fff", weight: 9, opacity: .9 } }).addTo(mapLayers);
         L.geoJSON(result.route.geometry, { style: { color: "#016bce", weight: 5 } }).addTo(mapLayers);
     }
-    marker(locations[start], `Origin · ${start}`, "A", "start");
-    marker(locations[end], `Destination · ${end}`, "B", "end");
+    marker(start.point, `Origin · ${start.label}`, "A", "start");
+    marker(end.point, `Destination · ${end.label}`, "B", "end");
     const stops = result?.stops?.length ? result.stops.map((stop) => stop.station) :
         result?.station ? [result.station] : [];
     stops.forEach((station, index) => marker(station.point, `Stop ${index + 1} · ${station.name}`,
         stops.length > 1 ? String(index + 1) : "F", "fuel"));
     routeBounds = mapLayers.getBounds();
     fitButton.disabled = !routeBounds.isValid();
-    if (stationsButton.getAttribute("aria-pressed") !== "true") fitRoute();
+    if (fit && stationsButton.getAttribute("aria-pressed") !== "true") fitRoute();
 }
 
 function addMetric(label, value) {
@@ -320,15 +395,17 @@ async function request(path, options) {
 
 async function planTrip(event) {
     event.preventDefault();
-    const [start, end] = [origin.value, destination.value];
+    setPicking(null);
+    const [start, end] = endpointControls.map(selectedEndpoint);
+    const version = selectionVersion;
     const values = new FormData(form);
-    if (start === end) {
+    if (start.point.lat === end.point.lat && start.point.lon === end.point.lon) {
         setProgress("Choose a different destination.", "error");
         return;
     }
     const trip = {
-        origin: locations[start],
-        destination: locations[end],
+        origin: start.point,
+        destination: end.point,
         fuel_type: values.get("fuel_type"),
         current_fuel_l: Number(values.get("current_fuel_l")),
         tank_capacity_l: Number(values.get("tank_capacity_l")),
@@ -344,7 +421,7 @@ async function planTrip(event) {
     form.setAttribute("aria-busy", "true");
     busyButtons.forEach((button) => { button.disabled = true; });
     resultPanel.hidden = true;
-    byId("route-caption").textContent = `${start} to ${end}`;
+    byId("route-caption").textContent = `${start.label} to ${end.label}`;
     drawTrip(start, end);
     setProgress("Submitting trip…", "pending");
     try {
@@ -359,17 +436,20 @@ async function planTrip(event) {
             RUNNING: "Checking roads and fuel stops…",
         };
         let job = receipt;
-        while (explainWait[job.status] && performance.now() < deadline) {
+        while (version === selectionVersion && explainWait[job.status] && performance.now() < deadline) {
             if (progress.textContent !== explainWait[job.status]) setProgress(explainWait[job.status], "pending");
             await new Promise((resolve) => setTimeout(resolve, 600));
+            if (version !== selectionVersion) return;
             job = await request(`/trip-plans/${encodeURIComponent(receipt.id)}`);
         }
+        if (version !== selectionVersion) return;
         if (job.status === "FAILED") throw new Error(errorMessages[job.error?.status] || "The worker couldn’t plan this trip.");
         if (job.status !== "SUCCEEDED") throw new Error("The trip is still processing. Try again shortly.");
         if (!fulfilled.has(job.result?.status)) throw new Error("The worker returned an unrecognized result.");
         showResult(start, end, trip, job.result);
         setProgress("Trip checked", "complete");
     } catch (error) {
+        if (version !== selectionVersion) return;
         setProgress(error.name === "TypeError" || error.name === "TimeoutError"
             ? "Couldn’t reach the local trip API. Check that Docker is running."
             : error.message, "error");
@@ -388,8 +468,30 @@ function runExample(fuel) {
 }
 
 form.addEventListener("submit", planTrip);
+for (const control of endpointControls) {
+    control.select.addEventListener("change", () => endpointsChanged());
+    control.button.addEventListener("click", () => setPicking(picking === control ? null : control));
+}
+mapElement.addEventListener("keydown", (event) => {
+    if (picking && event.target === mapElement && event.key === "Enter") {
+        event.preventDefault();
+        const { button } = picking;
+        pickPoint(map.getCenter());
+        button.focus({ preventScroll: true });
+    }
+});
+document.addEventListener("keydown", (event) => {
+    if (picking && event.key === "Escape") {
+        const { button } = picking;
+        setPicking(null);
+        button.focus({ preventScroll: true });
+    }
+});
 byId("swap").addEventListener("click", () => {
-    [origin.value, destination.value] = [destination.value, origin.value];
+    const [start, end] = endpointControls.map(selectedEndpoint);
+    setEndpoint(endpointControls[0], end);
+    setEndpoint(endpointControls[1], start);
+    endpointsChanged();
 });
 byId("example-stop").addEventListener("click", () => runExample(8));
 byId("example-direct").addEventListener("click", () => runExample(35));

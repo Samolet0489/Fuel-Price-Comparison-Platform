@@ -24,13 +24,21 @@
                 <fieldset>
                     <legend>Trip</legend>
                     <div class="locations">
-                        <label class="location origin">From
-                            <select id="origin" name="origin" required></select>
-                        </label>
+                        <div class="location-row">
+                            <label class="location origin">From
+                                <select id="origin" name="origin" required></select>
+                            </label>
+                            <button class="pick-location" id="pick-origin" type="button" aria-label="Pick start on map"
+                                    aria-controls="map" aria-pressed="false" disabled>Pick on map</button>
+                        </div>
                         <button class="swap" id="swap" type="button" aria-label="Swap origin and destination" title="Swap origin and destination">⇄</button>
-                        <label class="location destination">To
-                            <select id="destination" name="destination" required></select>
-                        </label>
+                        <div class="location-row">
+                            <label class="location destination">To
+                                <select id="destination" name="destination" required></select>
+                            </label>
+                            <button class="pick-location" id="pick-destination" type="button" aria-label="Pick destination on map"
+                                    aria-controls="map" aria-pressed="false" disabled>Pick on map</button>
+                        </div>
                     </div>
                 </fieldset>
                 <fieldset class="vehicle">
@@ -75,7 +83,8 @@
             </div>
             <p id="station-status" class="station-status" role="status"></p>
             <div class="map-frame">
-                <div id="map" aria-label="Interactive trip map"></div>
+                <div id="map" aria-label="Interactive trip map" aria-describedby="map-pick-hint"></div>
+                <p id="map-pick-hint" class="map-pick-hint" role="status" hidden></p>
                 <p id="map-notice" class="map-notice" hidden></p>
                 <div class="legend" aria-label="Map legend">
                     <span><i class="legend-route"></i> Route</span>

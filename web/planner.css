@@ -66,7 +66,8 @@ h1 { font-size: clamp(1.75rem, 3vw, 2.45rem); line-height: 1.08; letter-spacing:
 .intro { color: var(--muted); margin: 10px 0 23px; }
 fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 legend { padding: 0; color: var(--ink); font-size: .98rem; font-weight: 700; margin-bottom: 11px; }
-.locations { position: relative; display: grid; gap: 9px; }
+.locations { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 7px; }
+.location-row { grid-column: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: end; }
 label { display: block; min-width: 0; color: var(--muted); font-size: .875rem; }
 label span { color: #8da49f; }
 input, select {
@@ -93,11 +94,23 @@ select {
 .location::after { content: ""; position: absolute; width: 9px; height: 9px; border: 2px solid var(--mint); border-radius: 50%; left: 12px; bottom: 15px; pointer-events: none; }
 .location.destination::after { border-color: #9dcfff; border-radius: 2px; }
 .location select { padding-left: 32px; }
+.pick-location {
+    min-height: 42px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--well);
+    color: var(--ink);
+    font-size: .78rem;
+    white-space: nowrap;
+}
+.pick-location:hover:enabled, .pick-location[aria-pressed="true"] { border-color: var(--mint); }
+.pick-location[aria-pressed="true"] { color: var(--mint); }
+.pick-location:disabled { opacity: .55; }
 .swap {
-    position: absolute;
-    right: 7px;
-    top: 53px;
-    z-index: 1;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
     width: 29px;
     height: 29px;
     display: grid;
@@ -159,7 +172,9 @@ select {
     background-size: 38px 38px;
 }
 .leaflet-tile-pane { filter: saturate(.62); }
-.legend, .fit-route, .map-notice {
+#map.is-picking { cursor: crosshair; }
+#map.is-picking :is(.leaflet-interactive, .leaflet-pane canvas) { pointer-events: none; }
+.legend, .fit-route, .map-notice, .map-pick-hint {
     position: absolute;
     z-index: 500;
     background: #102123f5;
@@ -169,6 +184,7 @@ select {
     font-size: .875rem;
     box-shadow: 0 2px 9px #0e242635;
 }
+.map-pick-hint { left: 12px; right: 12px; bottom: 78px; padding: 8px 11px; pointer-events: none; }
 .legend { left: 12px; bottom: 26px; display: flex; flex-wrap: wrap; gap: 6px 13px; max-width: calc(100% - 24px); padding: 7px 10px; pointer-events: none; }
 .legend span { display: flex; align-items: center; gap: 6px; }
 .legend i { width: 17px; height: 4px; border-radius: 5px; background: #72bcff; }
