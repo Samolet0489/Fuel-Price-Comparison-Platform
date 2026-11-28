@@ -3,11 +3,17 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
 from fuel_stop.models import Point, Quote, Route, Station, Trip
+from fuel_stop.app import price_provider
+from fuel_stop.multi_stop import RefuelingSearch, SearchTimedOut
 from fuel_stop.planner import BorderRestrictedRoute, DependencyUnavailable, NoRoute, plan
+from fuel_stop.providers import AuthorisedPrices
+from scripts.import_fuel_prices import import_prices
+from scripts.refresh_tomtom_prices import refresh
 
 SAVED = json.loads((Path(__file__).parent / "fixtures/trips.json").read_text())
 NOW = datetime(2026, 11, 21, 12, tzinfo=timezone.utc)
@@ -218,6 +224,77 @@ def test_a_second_stop_can_reduce_cost_even_when_one_stop_is_feasible():
     assert result.arrival_fuel_l == 2
 
 
+def test_tomtom_snapshot_prices_a_trip_and_survives_failed_refresh(tmp_path):
+    replay = ChainReplay(115, {(0, 1): 40, (1, 2): 50, (2, 3): 25, (1, 3): 75})
+    mapping = {"1": "test-a", "2": "test-b"}
+    snapshot = tmp_path / "prices.json"
+    observed_at = NOW - timedelta(minutes=10)
+
+    def tomtom(request):
+        assert request.url.path == "/search/2/fuelPrice.json"
+        assert request.url.params["key"] == "mock-key"
+        assert request.headers["TomTom-Api-Version"] == "1"
+        price_id = request.url.params["fuelPrice"]
+        return httpx.Response(200, json={"fuelPrice": price_id, "fuels": [
+            {"type": "diesel", "price": [{"value": 2 if price_id == "test-a" else 1,
+                                        "currency": "EUR", "volumeUnit": "liter"}],
+             "updatedAt": observed_at.isoformat()},
+            {"type": "sp95_e10", "price": [{"value": 1.55, "currency": "EUR", "volumeUnit": "liter"}],
+             "updatedAt": observed_at.isoformat()},
+        ]})
+
+    with httpx.Client(transport=httpx.MockTransport(tomtom)) as client:
+        assert refresh(client, "mock-key", mapping, snapshot) == 4
+    stored = snapshot.read_bytes()
+    assert b"mock-key" not in stored
+    prices = AuthorisedPrices(None, "", "test-only", "TomTom", snapshot_file=str(snapshot))
+    result = plan(replay.trip, replay, replay, prices, mode="replay", now=NOW)
+    assert [stop.station.id for stop in result.stops] == ["1", "2"]
+    assert result.price_source == "TomTom"
+    assert result.estimated_cost_eur == Decimal("13.50")
+    assert all(stop.price_timestamp == observed_at for stop in result.stops)
+    assert all(q.fuel_type == "petrol95" for q in prices.quotes("petrol95"))
+    stale = plan(replay.trip, replay, replay, prices, mode="replay", now=NOW + timedelta(hours=2))
+    assert stale.status == "prices_unavailable"
+
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(429))) as client:
+        with pytest.raises(DependencyUnavailable, match="tomtom_prices"):
+            refresh(client, "mock-key", mapping, snapshot)
+    assert snapshot.read_bytes() == stored
+
+
+def test_csv_prices_are_picked_up_without_supplier_configuration(tmp_path, monkeypatch):
+    replay = ChainReplay(115, {(0, 1): 40, (1, 2): 50, (2, 3): 25, (1, 3): 75})
+    csv_file = tmp_path / "observed.csv"
+    snapshot = tmp_path / "local-prices.json"
+    for var in ("PRICE_FEED_URL", "PRICE_SNAPSHOT_FILE", "PRICE_PERMISSION_REFERENCE", "PRICE_SOURCE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PRICE_MODE", "observed")
+    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(tmp_path / "stations.json"))
+    assert not price_provider(None).configured
+    csv_file.write_text(
+        "station_id;fuel_type;eur_per_l;observed_at\n"
+        "1;diesel;2,00;2026-11-21T11:50:00Z\n"
+        "1;diesel;1,90;2026-11-21T10:00:00Z\n"
+        "2;diesel;1,00;2026-11-21T11:50:00Z\n", encoding="utf-8-sig",
+    )
+    stations = replay.route_candidates(replay.trip, None)
+    assert import_prices(csv_file, stations, snapshot) == 2
+    prices = price_provider(None)
+    result = plan(replay.trip, replay, replay, prices, mode="replay", now=NOW)
+    assert [stop.station.id for stop in result.stops] == ["1", "2"]
+    assert result.estimated_cost_eur == Decimal("13.50")
+    assert result.price_source == "Local pump observations"
+    assert plan(replay.trip, replay, replay, prices, now=NOW + timedelta(hours=2)).status == "prices_unavailable"
+
+    stored = snapshot.read_bytes()
+    with csv_file.open("a", encoding="utf-8") as stream:
+        stream.write("3;diesel;1,50;2026-11-21T11:50:00Z\n")
+    with pytest.raises(ValueError, match="station ID is not in the local catalogue"):
+        import_prices(csv_file, stations, snapshot)
+    assert snapshot.read_bytes() == stored
+
+
 def test_buy_more_now_to_avoid_fuel_at_the_expensive_next_stop():
     replay = ChainReplay(140, {(0, 1): 40, (1, 2): 50, (2, 3): 50}, prices={1: 1, 2: 2})
     result = replay.plan()
@@ -225,6 +302,23 @@ def test_buy_more_now_to_avoid_fuel_at_the_expensive_next_stop():
     assert [stop.litres_to_buy for stop in result.stops] == [9, 2]
     assert result.stops[0].departure_fuel_l == 10
     assert result.estimated_cost_eur == 13
+
+
+def test_feasible_chain_keeps_its_prices_if_optimization_times_out(monkeypatch):
+    replay = ChainReplay(140, {(0, 1): 40, (1, 2): 50, (2, 3): 50}, prices={1: 1, 2: 2})
+    original = RefuelingSearch.search
+
+    def search(self, quotes=None, beat_cost=None):
+        if quotes is not None:
+            raise SearchTimedOut()
+        return original(self, quotes, beat_cost)
+
+    monkeypatch.setattr(RefuelingSearch, "search", search)
+    result = replay.plan()
+    assert result.status == "stop"
+    assert result.ranking_complete is False
+    assert [stop.price_eur_per_l for stop in result.stops] == [1, 2]
+    assert result.estimated_cost_eur == 17
 
 
 def test_max_detour_applies_to_the_whole_chain():

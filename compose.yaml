@@ -47,6 +47,9 @@ services:
       STATION_CATALOGUE_FILE: /data/stations.json
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       PRICE_FEED_URL: ${PRICE_FEED_URL:-}
+      PRICE_MODE: ${PRICE_MODE:-generated}
+      PRICE_REVISION_URL: http://api:8001/fuel-prices/revision
+      PRICE_SNAPSHOT_FILE: ${PRICE_SNAPSHOT_FILE:-}
       PRICE_SOURCE: ${PRICE_SOURCE:-}
       PRICE_PERMISSION_REFERENCE: ${PRICE_PERMISSION_REFERENCE:-}
       PRICE_FEED_TOKEN: ${PRICE_FEED_TOKEN:-}
@@ -80,6 +83,7 @@ services:
     environment:
       <<: *jobs-environment
       WORKER_URL: http://worker:8000
+      PRICE_MODE: ${PRICE_MODE:-generated}
     depends_on:
       postgres:
         condition: service_healthy

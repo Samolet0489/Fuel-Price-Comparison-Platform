@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 psycopg = pytest.importorskip("psycopg", exc_type=ImportError)
 from psycopg import sql
@@ -13,6 +14,7 @@ from psycopg.conninfo import make_conninfo
 from fuel_stop.controller import dispatch, probe
 from fuel_stop.jobs import JobError, JobStore
 from fuel_stop.models import Plan, Trip
+from fuel_stop.public_api import app
 from tests.test_providers import TRIP
 
 
@@ -111,3 +113,28 @@ def test_concurrent_claim_and_non_retryable_worker_error(store):
     assert store.finish(receipt.id, claimed["attempt_id"], error) == "FAILED"
     assert store.get(receipt.id).error == error
     assert store.claim({"other": "another-node"}) is None
+
+
+def test_regeneration_updates_all_prices_and_persists_across_api_restart(store, monkeypatch):
+    monkeypatch.delenv("PRICE_MODE", raising=False)
+    catalogue = {
+        "source": "test", "data_timestamp": "2026-11-01T00:00:00Z",
+        "stations": [{"id": "node/42", "name": "Test", "point": {"lon": 16, "lat": 48},
+                      "fuel_types": ["diesel", "petrol95"], "opening_hours": "24/7"}],
+    }
+    with httpx.Client(base_url="http://worker.test", transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=catalogue))) as worker:
+        with TestClient(app) as client:
+            app.state.worker = worker
+            before = client.get("/stations").raise_for_status().json()["generated_prices"]["node/42"]
+            assert client.post("/fuel-prices/regenerate").status_code == 415
+            assert client.get("/fuel-prices/revision").json() == {"revision": 0}
+            assert client.post("/fuel-prices/regenerate", json={}).raise_for_status().json() == {"revision": 1}
+            after = client.get("/stations").raise_for_status().json()["generated_prices"]["node/42"]
+            assert all(before[fuel] != after[fuel] for fuel in before)
+        with TestClient(app) as restarted:
+            app.state.worker = worker
+            assert restarted.get("/stations").raise_for_status().json()["generated_prices"]["node/42"] == after
+    with ThreadPoolExecutor(max_workers=2) as users:
+        revisions = list(users.map(lambda _: store.regenerate_prices(), range(2)))
+    assert sorted(revisions) == [2, 3]

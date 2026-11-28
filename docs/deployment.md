@@ -113,10 +113,10 @@ $trip = Get-Content examples/trip.json -Raw
 Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -ContentType "application/json" -Body $trip
 ```
 
-Missing/invalid local station catalogues return `stations_unavailable` with a safe reason. If feasible candidates exist
-but no authorised fresh quotes are available, expect `prices_unavailable`. A trip
-with no feasible returned stop produces `no_feasible_stop`. None of these outcomes
-is replaced by synthetic routes. The station-only diagnostic remains:
+Missing or invalid local station catalogues return `stations_unavailable`.
+The default low-fuel trip uses generated station prices. In observed price mode,
+feasible trips without usable quotes return `prices_unavailable`. A trip with
+no feasible refueling plan returns `no_feasible_stop`. Run the station-only diagnostic with:
 
 ```powershell
 uv run --frozen python -m scripts.check_live_stations

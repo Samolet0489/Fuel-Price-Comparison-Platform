@@ -159,7 +159,7 @@ class RefuelingSearch:
                                 arrival, Leg(target, route, buy)))
         return None
 
-    def result(self, arrival: Arrival, quotes: dict[str, Quote] | None):
+    def result(self, arrival: Arrival, *, optimized: bool = False):
         legs = []
         while arrival.leg is not None:
             legs.append(arrival.leg)
@@ -174,13 +174,11 @@ class RefuelingSearch:
             distance = leg.route.distance_km
             burn = distance * self.rate
             reserve = self.trip.arrival_reserve_l if leg.target == self.destination else self.trip.minimum_buffer_l
-            buy = leg.bought if quotes is not None else max(ZERO, burn + reserve - fuel).quantize(ML, rounding=ROUND_CEILING)
+            buy = leg.bought if optimized else max(ZERO, burn + reserve - fuel).quantize(ML, rounding=ROUND_CEILING)
             station = self.stations[node]
             if station is not None and buy > 0:
-                quote = quotes.get(station.id) if quotes is not None else None
                 stops.append(FuelStop(station=station, arrival_fuel_l=fuel, litres_to_buy=buy,
-                                      departure_fuel_l=fuel + buy, price_eur_per_l=quote.eur_per_l if quote else None,
-                                      price_timestamp=quote.observed_at if quote else None))
+                                      departure_fuel_l=fuel + buy))
                 distances.append(distance_since_stop)
                 distance_since_stop = ZERO
             fuel += buy - burn

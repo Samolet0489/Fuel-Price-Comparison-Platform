@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from shapely.geometry import box
 
-from fuel_stop.app import app
+from fuel_stop.app import app, price_provider
 from fuel_stop.boundary import AustriaBoundary
 from fuel_stop.models import Point, Trip
 from fuel_stop.planner import DependencyUnavailable
@@ -83,6 +83,24 @@ def test_list_stations_returns_catalogue_without_trip_filter(tmp_path, monkeypat
     }
 
 
+def test_generated_quotes_use_the_current_revision(tmp_path, monkeypatch):
+    station = from_tags("node/42", {**TAGS, "fuel:octane_95": "yes"}, Point(lon=16, lat=48))
+    other = station.model_copy(update={"id": "way/43", "fuel_types": ["diesel"]})
+    rows = [item.model_dump(mode="json") for item in (station, other)]
+    monkeypatch.setenv("STATION_CATALOGUE_FILE", str(catalogue(tmp_path, rows)))
+    monkeypatch.delenv("PRICE_MODE", raising=False)
+    monkeypatch.setenv("PRICE_REVISION_URL", "http://api.test/fuel-prices/revision")
+    revision = 0
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"revision": revision}))) as client:
+        provider = price_provider(client)
+        before = {q.station_id: q.eur_per_l for q in provider.quotes("diesel")}
+        assert before.keys() == {"node/42", "way/43"}
+        assert [q.station_id for q in provider.quotes("petrol95")] == ["node/42"]
+        revision = 1
+        after = {q.station_id: q.eur_per_l for q in provider.quotes("diesel")}
+        assert all(before[station_id] != after[station_id] for station_id in before)
+
+
 @pytest.mark.parametrize(("station_file", "osrm_ok", "dependency"), [
     ("missing", True, "stations"),
     ("invalid", True, "stations"),
@@ -123,6 +141,7 @@ def test_default_local_station_plan_compares_all_candidates(tmp_path, monkeypatc
         for ident in range(1, station_count + 1)
     ]
     monkeypatch.setenv("STATION_SOURCE", "local")
+    monkeypatch.setenv("PRICE_MODE", "observed")
     monkeypatch.setenv("STATION_CATALOGUE_FILE", str(catalogue(tmp_path, stations)))
     for name in ("PRICE_FEED_URL", "PRICE_PERMISSION_REFERENCE", "PRICE_SOURCE"):
         monkeypatch.delenv(name, raising=False)

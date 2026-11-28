@@ -72,16 +72,17 @@ against any priced single stop. The response flags incomplete price comparisons.
 
 To try a trip that needs two stops, select Vienna to Graz and enter diesel,
 8 L of current fuel, an 8.5 L tank, consumption of 10 L/100 km, a 2 L arrival
-reserve, and a 15 km maximum detour. With the prepared Austria catalogue and
-no price feed, expect two numbered stations and a planned purchase at each one.
+reserve, and a 15 km maximum detour. With the prepared Austrian catalogue, expect
+at least two numbered stations and a planned purchase at each one.
 
 ```powershell
 uv run --frozen python -m scripts.check_trip_jobs
 ```
 
-This sends both live example trips through the API and controller. Run it with
-the Austrian map and station catalogue prepared and no price feed configured.
-The low-fuel result should include the Shell fallback with the saved catalogue.
+This sends both example trips through the API and controller. With the Austrian
+map and station catalogue prepared, the low-fuel trip should return a priced
+plan. Select **Regenerate prices** in the map toolbar to replace the generated
+prices for every station and recalculate the trip.
 
 Jobs have a 90-second deadline including queue time. An attempt can run for up
 to 30 seconds. A timeout or transient failure can retry once on a different
@@ -99,9 +100,8 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -ContentType "app
 ```
 
 Normal station lookup now uses a local OSM catalogue, avoiding public Overpass
-capacity failures. The verified low-fuel example returns `prices_unavailable`
-after comparing 178 stations and finding 50 feasible stops. An authorised price
-supplier is still required; no price supplier is configured by default.
+capacity failures. The generated prices are the default data source. The app
+supports optional observed prices through the configuration in the price guide.
 
 For an existing map installation, build the catalogue without rebuilding OSRM:
 
@@ -141,7 +141,7 @@ Production never falls back to replay routes or a public demo routing server.
 | Austria-only policy | Local OSM boundary validation of inputs, snapped waypoints and the entire route line |
 | Austria-wide map preparation | Existing full map and real route verified; station extraction now tested on that PBF |
 | Station lookup | Real local OSM catalogue; 465 eligible Austrian stations, no runtime HTTP lookup |
-| Current Austrian prices | Authorised source still required; no private API scraping |
+| Fuel prices | Generated prices for every station with a regeneration button, plus optional observed prices |
 | Monitoring | Existing Prometheus metrics and Grafana queries retained |
 | Placement lab | Separate virtual-region cluster with simulated price/carbon controls, real worker scheduling, Prometheus and Grafana |
 | Kubernetes | Full single-node kind deployment and live verification scripts; see the Kubernetes guide for verification status and multi-node limits |

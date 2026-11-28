@@ -56,6 +56,7 @@ class StationCatalogue(Model):
     source: str
     data_timestamp: datetime
     stations: list[Station]
+    generated_prices: dict[str, dict[str, Decimal]] | None = None
 
 
 class Route(Model):

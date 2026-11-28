@@ -1,4 +1,4 @@
-"""Verify the direct and no-price fallback trips through the public API."""
+"""Verify direct and refueling trips through the public API."""
 import argparse
 import json
 from pathlib import Path
@@ -37,13 +37,19 @@ def check_trip(client: httpx.Client, filename: str, expected: str):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", default="http://127.0.0.1:8001")
+    parser.add_argument("--expect-unpriced", action="store_true", help="check the fallback in observed price mode")
     args = parser.parse_args()
     with httpx.Client(base_url=args.api_url, timeout=5) as client:
         check_trip(client, "direct-trip.json", "direct")
-        fallback = check_trip(client, "trip.json", "prices_unavailable")
-        if not fallback["station"] or fallback["estimated_cost_eur"] is not None:
-            raise RuntimeError("The fallback must include a station and have no estimated cost")
-        print(f"Fallback: {fallback['station']['name']}, buy {fallback['litres_to_buy']} L")
+        expected = "prices_unavailable" if args.expect_unpriced else "stop"
+        result = check_trip(client, "trip.json", expected)
+        has_cost = result["estimated_cost_eur"] is not None
+        if not result["stops"] or has_cost == args.expect_unpriced:
+            raise RuntimeError("Trip did not return the expected stops and cost")
+        for stop in result["stops"]:
+            print(f"{stop['station']['name']}: buy {stop['litres_to_buy']} L")
+        if has_cost:
+            print(f"Estimated cost: EUR {result['estimated_cost_eur']}")
 
 
 if __name__ == "__main__":

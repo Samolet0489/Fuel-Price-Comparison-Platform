@@ -127,6 +127,8 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
     common.update(priced_stations=len(ranked), ranking_complete=len(ranked) == len(feasible),
                   price_source=prices.source, price_retrieved_at=prices.retrieved_at)
     ranked.sort(key=lambda row: row[:4])
+    chain = search.result(fallback) if fallback is not None else None
+    known_cost = ranked[0][0] if ranked else (chain_cost(chain[0], valid) if chain else None)
     if valid and route_candidates is not None:
         if search is None:
             search = make_search(trip, router, direct, route_candidates(trip, direct), search_deadline)
@@ -134,14 +136,14 @@ def plan(trip: Trip, router: Router, stations: Stations, prices: Prices,
         common["ranking_complete"] = common["ranking_complete"] and candidate_ids <= valid.keys()
         if len(candidate_ids & valid.keys()) >= 2:
             try:
-                priced = search.search(valid, beat_cost=ranked[0][0] if ranked else None)
+                priced = search.search(valid, beat_cost=known_cost)
             except SearchTimedOut:
                 priced = None
                 common["ranking_complete"] = False
             if priced is not None:
-                return chain_plan(search, priced, direct, common, compared, feasible, ranked, valid)
-    if fallback is not None:
-        return chain_plan(search, fallback, direct, common, compared, feasible, ranked, None)
+                chain = search.result(priced, optimized=True)
+    if chain is not None:
+        return chain_plan(search, chain, direct, common, compared, feasible, ranked, valid)
     if search is not None:
         common["stations_compared"] = len(compared | search.checked)
     if not ranked:
@@ -193,23 +195,35 @@ def make_search(trip, router, direct, candidates, deadline):
     return RefuelingSearch(trip, direct, eligible, road_leg, deadline)
 
 
-def chain_plan(search, arrival, direct, common, compared, feasible, ranked, quotes):
-    stops, route, fuel = search.result(arrival, quotes)
+def chain_cost(stops, quotes):
+    if any(stop.station.id not in quotes for stop in stops):
+        return None
+    return sum((stop.litres_to_buy * quotes[stop.station.id].eur_per_l for stop in stops), Decimal(0))
+
+
+def chain_plan(search, chain, direct, common, compared, feasible, ranked, quotes):
+    stops, route, fuel = chain
     detour = max(Decimal(0), route.distance_km - direct.distance_km)
     if not stops:
         return Plan(status="direct", mode=common["mode"], route=route, litres_to_buy=0,
                     estimated_cost_eur=0, arrival_fuel_l=fuel, detour_km=detour,
                     message="Destination reachable with the requested arrival reserve")
+    total = chain_cost(stops, quotes)
+    priced = total is not None
+    cost = total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if priced else None
+    for stop in stops:
+        quote = quotes.get(stop.station.id)
+        if quote is not None:
+            stop.price_eur_per_l = quote.eur_per_l
+            stop.price_timestamp = quote.observed_at
     first = stops[0] if len(stops) == 1 else None
-    priced = quotes is not None
-    cost = arrival.cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if priced else None
     stop_ids = {stop.station.id for stop in stops}
     coverage = {
         **common,
         "ranking_complete": priced and common["ranking_complete"],
         "stations_compared": len(compared | search.checked),
         "feasible_stations": len(stop_ids | {row[0].id for row in feasible}),
-        "priced_stations": len((stop_ids if priced else set()) | {row[4].id for row in ranked}),
+        "priced_stations": len((stop_ids & quotes.keys()) | {row[4].id for row in ranked}),
     }
     return Plan(status="stop" if priced else "prices_unavailable", **coverage,
                 station=first.station if first else None, stops=stops, route=route,

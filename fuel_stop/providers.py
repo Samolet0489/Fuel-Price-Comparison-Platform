@@ -1,8 +1,10 @@
 """Live adapters. Provider failures never become fake routes or zero prices."""
+import json
 import math
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -11,11 +13,14 @@ from prometheus_client import Counter, Histogram
 
 from .models import Point, Quote, Route, Station, Trip
 from .boundary import AustriaBoundary
+from .generated_prices import SOURCE as GENERATED_PRICE_SOURCE, generated_price
 from .planner import BorderRestrictedRoute, DependencyUnavailable, NoRoute
 
 LOOKUP_SECONDS = Histogram("fuel_provider_seconds", "Provider request latency", ["provider"])
 LOOKUP_FAILURES = Counter("fuel_provider_failures_total", "Failed provider requests", ["provider"])
 logger = logging.getLogger(__name__)
+LOCAL_PRICE_SOURCE = "Local pump observations"
+LOCAL_PRICE_FILENAME = "local-prices.json"
 
 
 def request(client, provider, method, url, **kwargs):
@@ -154,24 +159,57 @@ class OSMStations:
             raise DependencyUnavailable("stations") from None
 
 
-class AuthorisedPrices:
-    """Contract for a licensed feed, NOT an adapter for E-Control's private API.
+class GeneratedPrices:
+    source = GENERATED_PRICE_SOURCE
+    configured = True
+    retrieved_at = None
 
-    The URL must serve {"quotes": [Quote, ...]}. IDs must match OSM IDs.
-    An upstream adapter is needed if the eventual licensed provider differs.
-    """
-    def __init__(self, client, url: str, permission_reference: str, source: str, token: str = ""):
-        self.client, self.url, self.permission_reference = client, url, permission_reference
-        self.source, self.token, self.retrieved_at = source, token, None
+    def __init__(self, load_stations, client, revision_url):
+        self.load_stations = load_stations
+        self.client = client
+        self.revision_url = revision_url
 
     def quotes(self, fuel_type: str) -> list[Quote]:
-        if not self.url or not self.permission_reference or not self.source:
+        stations = self.load_stations()
+        revision = 0
+        if self.revision_url:
+            payload = request(self.client, "prices", "GET", self.revision_url, timeout=2)
+            revision = payload.get("revision") if isinstance(payload, dict) else None
+            if type(revision) is not int or revision < 0:
+                raise DependencyUnavailable("prices", "invalid_price_revision")
+        generated_at = datetime.now(timezone.utc)
+        return [Quote(station_id=station.id, fuel_type=fuel_type,
+                      eur_per_l=generated_price(station.id, fuel_type, revision), observed_at=generated_at)
+                for station in stations if fuel_type in station.fuel_types]
+
+
+class AuthorisedPrices:
+    """Read normalized, authorized quotes from an HTTP feed or a local snapshot."""
+    def __init__(self, client, url: str, permission_reference: str, source: str, token: str = "",
+                 snapshot_file: str = ""):
+        self.client, self.url, self.permission_reference = client, url, permission_reference
+        self.source, self.token, self.retrieved_at = source, token, None
+        self.snapshot_file = snapshot_file
+
+    @property
+    def configured(self) -> bool:
+        return bool((self.url or self.snapshot_file) and self.permission_reference and self.source)
+
+    def quotes(self, fuel_type: str) -> list[Quote]:
+        if not self.configured:
             LOOKUP_FAILURES.labels("prices").inc()
             raise DependencyUnavailable("prices")
-        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
-        data = request(self.client, "prices", "GET", self.url, headers=headers,
-                       params={"fuel_type": fuel_type})
         try:
+            if self.snapshot_file:
+                data = json.loads(Path(self.snapshot_file).read_text(encoding="utf-8"))
+                retrieved_at = datetime.fromisoformat(data["retrieved_at"])
+                if data["source"] != self.source or retrieved_at.tzinfo is None or retrieved_at > datetime.now(timezone.utc):
+                    raise ValueError("Invalid snapshot provenance")
+            else:
+                headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+                data = request(self.client, "prices", "GET", self.url, headers=headers,
+                               params={"fuel_type": fuel_type})
+                retrieved_at = datetime.now(timezone.utc)
             quotes = [Quote.model_validate(q) for q in data["quotes"]]
             # Reject ambiguous conflicting duplicates rather than choose an arbitrary price.
             seen = {}
@@ -180,8 +218,10 @@ class AuthorisedPrices:
                 if key in seen and seen[key] != q.eur_per_l:
                     raise ValueError("Conflicting prices")
                 seen[key] = q.eur_per_l
-            self.retrieved_at = datetime.now(timezone.utc)
+            self.retrieved_at = retrieved_at
+            if self.snapshot_file:
+                return [quote for quote in quotes if quote.fuel_type == fuel_type]
             return quotes
-        except (KeyError, TypeError, ValueError, ValidationError):
+        except (OSError, KeyError, TypeError, ValueError, ValidationError):
             LOOKUP_FAILURES.labels("prices").inc()
             raise DependencyUnavailable("prices") from None

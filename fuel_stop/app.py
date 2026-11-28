@@ -2,6 +2,7 @@ import os
 import socket
 from contextlib import asynccontextmanager
 from functools import lru_cache
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Response
@@ -9,12 +10,15 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 
 from .models import Plan, StationCatalogue, Trip
 from .boundary import AustriaBoundary
+from .generated_prices import generated_prices_enabled
 from .planner import BorderRestrictedRoute, DependencyUnavailable, NoRoute, OutsideAustria, plan
-from .providers import AuthorisedPrices, OSRMRouter, OSMStations
+from .providers import (LOCAL_PRICE_FILENAME, LOCAL_PRICE_SOURCE, AuthorisedPrices, GeneratedPrices,
+                        OSRMRouter, OSMStations)
 from .stations import LocalStations
 
 PLANS = Counter("fuel_plans_total", "Planning outcomes", ["status"])
 LATENCY = Histogram("fuel_plan_seconds", "Complete planning latency")
+DEFAULT_STATION_CATALOGUE = "data/osrm/stations.json"
 
 
 @asynccontextmanager
@@ -39,7 +43,7 @@ def boundary():
 
 
 def local_stations():
-    return LocalStations(os.getenv("STATION_CATALOGUE_FILE", "data/osrm/stations.json"), boundary())
+    return LocalStations(os.getenv("STATION_CATALOGUE_FILE", DEFAULT_STATION_CATALOGUE), boundary())
 
 
 def station_provider(client):
@@ -49,6 +53,19 @@ def station_provider(client):
     if source == "overpass":
         return OSMStations(client, os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter"))
     raise DependencyUnavailable("stations", "invalid_station_source")
+
+
+def price_provider(client):
+    if generated_prices_enabled():
+        return GeneratedPrices(lambda: local_stations().load(), client, os.getenv("PRICE_REVISION_URL", ""))
+    url = os.getenv("PRICE_FEED_URL", "")
+    snapshot = os.getenv("PRICE_SNAPSHOT_FILE", "")
+    if not url and not snapshot:
+        local_file = Path(os.getenv("STATION_CATALOGUE_FILE", DEFAULT_STATION_CATALOGUE)).with_name(LOCAL_PRICE_FILENAME)
+        if local_file.is_file():
+            return AuthorisedPrices(client, "", "local-observations", LOCAL_PRICE_SOURCE, snapshot_file=str(local_file))
+    return AuthorisedPrices(client, url, os.getenv("PRICE_PERMISSION_REFERENCE", ""),
+                            os.getenv("PRICE_SOURCE", ""), os.getenv("PRICE_FEED_TOKEN", ""), snapshot)
 
 
 @app.get("/health/live")
@@ -79,8 +96,7 @@ def ready(response: Response):
             "routing_provider": "osrm", **checks,
             "station_source": os.getenv("STATION_SOURCE", "local"),
             "routing_url": routing_url,
-            "prices_configured": all(os.getenv(k) for k in
-                                     ("PRICE_FEED_URL", "PRICE_PERMISSION_REFERENCE", "PRICE_SOURCE"))}
+            "prices_configured": price_provider(client).configured}
 
 
 @app.get("/metrics", include_in_schema=False)
@@ -88,7 +104,7 @@ def metrics():
     return Response(generate_latest(), headers={"Content-Type": CONTENT_TYPE_LATEST})
 
 
-@app.get("/stations", response_model=StationCatalogue)
+@app.get("/stations", response_model=StationCatalogue, response_model_exclude_none=True)
 def list_stations():
     try:
         catalogue = local_stations()
@@ -101,9 +117,7 @@ def list_stations():
 @app.post("/plan", response_model=Plan)
 def create_plan(trip: Trip):
     client = app.state.client
-    prices = AuthorisedPrices(client, os.getenv("PRICE_FEED_URL", ""),
-                              os.getenv("PRICE_PERMISSION_REFERENCE", ""),
-                              os.getenv("PRICE_SOURCE", ""), os.getenv("PRICE_FEED_TOKEN", ""))
+    prices = price_provider(client)
     with LATENCY.time():
         try:
             router = OSRMRouter(client, os.getenv("OSRM_BASE_URL", "http://127.0.0.1:5000"), boundary())

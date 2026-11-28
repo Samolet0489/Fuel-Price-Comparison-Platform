@@ -7,10 +7,11 @@ from uuid import UUID
 
 import httpx
 import psycopg
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .generated_prices import generated_price, generated_prices_enabled
 from .jobs import JobReceipt, JobStore, JobView
 from .models import StationCatalogue, Trip
 
@@ -50,14 +51,36 @@ def ready():
     return {"status": "ok"}
 
 
-@app.get("/stations", response_model=StationCatalogue)
+@app.get("/stations", response_model=StationCatalogue, response_model_exclude_none=True)
 def list_stations():
     try:
         response = app.state.worker.get("/stations")
         response.raise_for_status()
-        return StationCatalogue.model_validate(response.json())
+        catalogue = StationCatalogue.model_validate(response.json())
     except (httpx.HTTPError, ValueError):
         raise HTTPException(503, detail={"status": "station_catalogue_unavailable"}) from None
+    if generated_prices_enabled():
+        revision = app.state.jobs.price_revision()
+        catalogue.generated_prices = {
+            station.id: {fuel: generated_price(station.id, fuel, revision) for fuel in station.fuel_types}
+            for station in catalogue.stations
+        }
+    return catalogue
+
+
+@app.get("/fuel-prices/revision")
+def price_revision() -> dict[str, int]:
+    return {"revision": app.state.jobs.price_revision()}
+
+
+@app.post("/fuel-prices/regenerate")
+def regenerate_prices(request: Request) -> dict[str, int]:
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(415, detail={"status": "json_required"})
+    if not generated_prices_enabled():
+        raise HTTPException(409, detail={"status": "generated_prices_disabled"})
+    return {"revision": app.state.jobs.regenerate_prices()}
 
 
 @app.post("/trip-plans", response_model=JobReceipt, status_code=202)

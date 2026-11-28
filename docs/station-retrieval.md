@@ -69,10 +69,10 @@ $result = Invoke-RestMethod -Uri http://127.0.0.1:8000/plan -Method Post -Conten
 $result | Select-Object status, stations_compared, feasible_stations, priced_stations, station_source, station_data_timestamp
 ```
 
-The verified result is HTTP 200, `prices_unavailable`, **178 compared**, **50
-feasible**, and zero priced stations. This establishes working station retrieval
-and actual road feasibility evaluation; it does not establish a cheapest priced
-recommendation. Authorised Austrian prices are still required.
+The default low-fuel example returns a priced plan using generated station
+prices. To test catalogue retrieval without quotes, set `PRICE_MODE=observed`
+with no price feed or local observations. The recorded fallback run compared
+178 stations, found 50 feasible stops, and returned `prices_unavailable`.
 
 ## Optional Overpass diagnostic
 

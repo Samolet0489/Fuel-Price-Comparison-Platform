@@ -42,8 +42,8 @@ From the repository root:
 
 Open <http://127.0.0.1:18001/> for the map and
 <http://127.0.0.1:18001/docs> for API documentation. The default low-fuel trip
-returns `prices_unavailable` with a fallback station until an authorized feed is
-configured; the direct example returns `direct`. Map tiles and Leaflet assets
+uses generated station prices and the direct example returns `direct`.
+Map tiles and Leaflet assets
 require internet access, while routing and station lookup use local data.
 
 The startup script builds application images, loads them into kind, creates a

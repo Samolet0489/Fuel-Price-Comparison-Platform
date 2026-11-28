@@ -123,7 +123,7 @@ def main():
         wait_for(client, lambda s: s['scenario'] == original and any(p['ready'] for p in s['pods']), 'original scenario restored')
     with httpx.Client(base_url=args.api_url, timeout=10) as client:
         check_trip(client, 'direct-trip.json', 'direct')
-        check_trip(client, 'trip.json', 'prices_unavailable')
+        check_trip(client, 'trip.json', 'stop')
     print('PASS: simulated placement changes, actual node observations, monitoring, and live trip jobs')
 
 

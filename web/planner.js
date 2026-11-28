@@ -10,7 +10,8 @@ const mapNotice = byId("map-notice");
 const fitButton = byId("fit-route");
 const stationsButton = byId("all-stations");
 const stationStatus = byId("station-status");
-const busyButtons = ["submit", "example-stop", "example-direct"].map(byId);
+const regenerateButton = byId("regenerate-prices");
+const busyButtons = ["submit", "example-stop", "example-direct", "regenerate-prices"].map(byId);
 const locations = {
     Vienna: { lon: 16.3692842, lat: 48.2024484 },
     Graz: { lon: 15.4392, lat: 47.0667 },
@@ -39,6 +40,7 @@ const errorMessages = {
     attempt_expired: "The planning job expired. Try again.",
     job_deadline_exceeded: "The trip could not finish within 90 seconds, including time in the queue.",
     database_unavailable: "The trip database is unavailable. Try again shortly.",
+    generated_prices_disabled: "Price regeneration is available when generated station prices are active.",
 };
 
 for (const select of [origin, destination]) {
@@ -51,6 +53,7 @@ let mapLayers;
 let routeBounds;
 let stationLayer;
 let stationRenderer;
+let stationPrices;
 if (window.L) {
     map = L.map("map", { scrollWheelZoom: false }).setView([47.65, 14.9], 7);
     mapLayers = L.featureGroup().addTo(map);
@@ -84,14 +87,23 @@ function fitRoute() {
     }
 }
 
-function stationPopup(station) {
+function stationPopup(station, offers) {
     const popup = document.createElement("div");
     const name = document.createElement("strong");
     const fuel = document.createElement("p");
+    const id = document.createElement("small");
     name.textContent = station.name;
     const labels = { diesel: "Diesel", petrol95: "Petrol 95" };
     fuel.textContent = `${station.fuel_types.map((type) => labels[type] || type).join(" · ")} | Open ${station.opening_hours}`;
+    id.textContent = `Station ID: ${station.id}`;
     popup.append(name, fuel);
+    if (offers) {
+        const prices = document.createElement("p");
+        const values = Object.entries(offers).map(([type, value]) => `${labels[type] || type} ${unitPrice.format(value)}/L`);
+        prices.textContent = `Generated prices · ${values.join(" · ")}`;
+        popup.append(prices);
+    }
+    popup.append(id);
     return popup;
 }
 
@@ -111,7 +123,8 @@ async function toggleStations() {
     stationStatus.textContent = "Loading stations…";
     try {
         if (!stationLayer) {
-            const { stations } = await request("/stations");
+            const { stations, generated_prices: prices } = await request("/stations");
+            stationPrices = prices;
             if (!stations.length) {
                 stationStatus.textContent = "The catalogue has no stations.";
                 return;
@@ -119,7 +132,7 @@ async function toggleStations() {
             const dots = stations.map((station) => L.circleMarker([station.point.lat, station.point.lon], {
                 renderer: stationRenderer, radius: 5, color: "#f0fff9", weight: 1.4,
                 fillColor: "#168066", fillOpacity: .88,
-            }).bindPopup(() => stationPopup(station)));
+            }).bindPopup(() => stationPopup(station, stationPrices?.[station.id])));
             stationLayer = L.featureGroup(dots);
         }
         stationLayer.addTo(map);
@@ -134,6 +147,37 @@ async function toggleStations() {
     } finally {
         stationsButton.disabled = false;
     }
+}
+
+async function regeneratePrices() {
+    const replan = !resultPanel.hidden;
+    const stationsWereDisabled = stationsButton.disabled;
+    stationsButton.disabled = true;
+    busyButtons.forEach((button) => { button.disabled = true; });
+    stationStatus.textContent = "Generating new fuel prices…";
+    let regenerated = false;
+    try {
+        await request("/fuel-prices/regenerate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+        });
+        regenerated = true;
+        resultPanel.hidden = true;
+        map?.closePopup();
+        stationPrices = null;
+        if (stationLayer) {
+            const catalogue = await request("/stations");
+            stationPrices = catalogue.generated_prices;
+        }
+        stationStatus.textContent = "Fuel prices updated for all stations.";
+    } catch (error) {
+        stationStatus.textContent = regenerated ? "Fuel prices updated. Reload the map to see station prices." : error.message;
+    } finally {
+        stationsButton.disabled = stationsWereDisabled;
+        busyButtons.forEach((button) => { button.disabled = false; });
+    }
+    if (regenerated && replan) form.requestSubmit();
 }
 
 function marker(point, text, symbol, kind) {
@@ -234,6 +278,9 @@ function showResult(start, end, trip, result) {
         "A complete fuel price estimate is unavailable for this route." :
         "No usable fuel prices. This stop adds the least driving distance.";
     if (result.status === "stop" && !result.ranking_complete) priceNote = "The price comparison is incomplete.";
+    if (result.status === "stop" && result.price_source) {
+        priceNote = [priceNote, `Price source: ${result.price_source}.`].filter(Boolean).join(" ");
+    }
     if (result.status === "no_feasible_stop") priceNote = "The stations checked did not meet the trip’s fuel and detour requirements.";
     showNote("price-note", priceNote);
     const next = result.runner_up;
@@ -348,4 +395,5 @@ byId("example-stop").addEventListener("click", () => runExample(8));
 byId("example-direct").addEventListener("click", () => runExample(35));
 fitButton.addEventListener("click", fitRoute);
 stationsButton.addEventListener("click", toggleStations);
+regenerateButton.addEventListener("click", regeneratePrices);
 runExample(8);

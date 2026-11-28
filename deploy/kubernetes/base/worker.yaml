@@ -53,6 +53,8 @@ spec:
               value: local
             - name: STATION_CATALOGUE_FILE
               value: /data/stations.json
+            - name: PRICE_REVISION_URL
+              value: http://fuel-stop-api:8001/fuel-prices/revision
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

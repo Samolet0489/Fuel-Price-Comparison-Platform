@@ -59,6 +59,13 @@ class JobStore:
             # Serialize startup migrations when two API instances overlap.
             db.execute("SELECT pg_advisory_xact_lock(hashtext('fuel_stop_trip_jobs_schema'))")
             db.execute("""
+                CREATE TABLE IF NOT EXISTS fuel_price_state (
+                    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+                    revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0)
+                )
+                """)
+            db.execute("INSERT INTO fuel_price_state DEFAULT VALUES ON CONFLICT DO NOTHING")
+            db.execute("""
                 CREATE TABLE IF NOT EXISTS trip_jobs (
                     id uuid PRIMARY KEY,
                     status text NOT NULL DEFAULT 'QUEUED'
@@ -94,6 +101,17 @@ class JobStore:
                 CREATE INDEX IF NOT EXISTS trip_jobs_active_deadline ON trip_jobs (deadline_at)
                 WHERE status IN ('QUEUED', 'RUNNING')
                 """)
+
+    def price_revision(self) -> int:
+        with self.connect() as db:
+            return db.execute("SELECT revision FROM fuel_price_state WHERE singleton").fetchone()["revision"]
+
+    def regenerate_prices(self) -> int:
+        with self.connect() as db:
+            return db.execute("""
+                UPDATE fuel_price_state SET revision = revision + 1
+                WHERE singleton RETURNING revision
+                """).fetchone()["revision"]
 
     def submit(self, trip: Trip) -> JobReceipt:
         receipt = JobReceipt(id=uuid4())
