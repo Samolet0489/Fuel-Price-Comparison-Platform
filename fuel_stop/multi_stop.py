@@ -25,8 +25,9 @@ class SearchTimedOut(Exception):
 @dataclass(eq=False)
 class Leg:
     target: int
-    route: Route
+    distance_km: Decimal
     bought: Decimal
+    route: Route | None
 
 
 @dataclass(eq=False)
@@ -41,7 +42,8 @@ class Arrival:
 
 class RefuelingSearch:
     def __init__(self, trip: Trip, direct: Route, candidates: list[Station],
-                 road_leg: Callable[[Point, Point], Route | None], deadline: float):
+                 road_leg: Callable[[Point, Point], Route | None], deadline: float,
+                 road_table: Callable[[list[Point], float], dict[tuple[int, int], Decimal | None] | None] | None = None):
         self.trip = trip
         self.rate = trip.consumption_l_per_100km / 100
         self.limit = direct.distance_km + trip.max_detour_km if trip.max_detour_km is not None else Decimal("Infinity")
@@ -51,8 +53,10 @@ class RefuelingSearch:
         self.deadline = deadline
         self.checked: set[str] = set()
         self.road_leg = road_leg
+        self.road_table = road_table
         self.bounds: dict[tuple[int, int], Decimal] = {}
         self.routes: dict[tuple[int, int], Route | None] = {}
+        self.table: dict[tuple[int, int], Decimal | None] | None = None
 
     def lower_bound(self, a: int, b: int) -> Decimal:
         key = (min(a, b), max(a, b))
@@ -75,6 +79,98 @@ class RefuelingSearch:
                 yield index
 
     def search(self, quotes: dict[str, Quote] | None = None, beat_cost: Decimal | None = None) -> Arrival | None:
+        self.table = None
+        possible = list(self.possible_stations())
+        prices = {i: quotes[self.stations[i].id].eur_per_l for i in possible
+                  if quotes is not None and self.stations[i].id in quotes}
+        targets = [*(possible if quotes is None else prices), self.destination]
+        if quotes is not None and self.road_table is not None:
+            nodes = [0, *targets]
+            distances = self.road_table([self.points[i] for i in nodes], self.deadline)
+            if distances is not None:
+                self.table = {(nodes[a], nodes[b]): distance for (a, b), distance in distances.items()}
+                self.checked.update(self.stations[i].id for i in prices)
+        while True:
+            winner = self._search(targets, prices, quotes is not None, beat_cost)
+            if self.table is None or winner is None or self.verify(winner):
+                return winner
+
+    def edge_distance(self, source: int, target: int) -> Decimal | None:
+        key = (source, target)
+        if key in self.routes:
+            route = self.routes[key]
+            return route.distance_km if route is not None else None
+        if self.table is not None:
+            return self.table[key]
+        return self.lower_bound(source, target)
+
+    def remaining_distances(self, targets: list[int], seeds=None) -> dict[int, Decimal]:
+        """Shortest remaining distance through the directed table, ignoring fuel and borders."""
+        distances = {self.destination: ZERO} if seeds is None else dict(seeds)
+        heap = []
+        for target, distance in distances.items():
+            heappush(heap, (distance, target))
+        sources = [0, *targets[:-1]]
+        while heap:
+            remaining, target = heappop(heap)
+            if target == 0 or remaining != distances[target]:
+                continue
+            for source in sources:
+                distance = self.edge_distance(source, target)
+                if distance is None:
+                    continue
+                total = distance + remaining
+                if source not in distances or total < distances[source]:
+                    distances[source] = total
+                    heappush(heap, (total, source))
+        return distances
+
+    def price_bounds(self, targets, prices, remaining, beat_cost):
+        """Bound purchase cost by the distance required to reach cheaper fuel."""
+        required = remaining.get(0, ZERO) * self.rate + self.trip.arrival_reserve_l - self.trip.current_fuel_l
+        if beat_cost is None or required <= 0:
+            return []
+        limit = beat_cost / required
+        cheap = sorted({price for price in prices.values() if price < limit})
+        if not cheap:
+            return []
+        # Split the competitive prices into a few bands. Any continuation
+        # that buys fuel visits at least one station at its lowest price.
+        band_size = (len(cheap) + 3) // 4
+        bands = []
+        for first in range(0, len(cheap), band_size):
+            low, high = cheap[first], cheap[min(first + band_size, len(cheap)) - 1]
+            seeds = {node: remaining[node] for node, price in prices.items()
+                     if low <= price <= high and node in remaining}
+            bands.append((low, self.remaining_distances(targets, seeds)))
+        higher = min((price for price in prices.values() if price >= limit), default=None)
+        if higher is not None:
+            bands.append((higher, remaining))
+        return bands
+
+    def verify(self, arrival: Arrival) -> bool:
+        # Table routes have distances but no geometry. Cache the full route for
+        # each leg and rerun the search if the verified route changes the graph.
+        valid = True
+        next_start = None
+        while arrival.leg is not None:
+            if monotonic() >= self.deadline:
+                raise SearchTimedOut()
+            leg = arrival.leg
+            route = self.lookup(arrival.previous.node, arrival.node)
+            if route is None:
+                valid = False
+                next_start = None
+            else:
+                points = route.geometry["coordinates"]
+                if leg.distance_km != route.distance_km or (next_start is not None and points[-1] != next_start):
+                    valid = False
+                leg.route = route
+                next_start = points[0]
+            arrival = arrival.previous
+        return valid
+
+    def _search(self, targets, prices, optimize, beat_cost) -> Arrival | None:
         """Prioritize price estimates or, without prices, progress toward the destination.
 
         A priced departure buys enough to reach the next stop or fills the tank.
@@ -83,32 +179,58 @@ class RefuelingSearch:
         """
         destination = self.destination
         trip = self.trip
-        possible = list(self.possible_stations())
-        prices = {i: quotes[self.stations[i].id].eur_per_l for i in possible
-                  if quotes is not None and self.stations[i].id in quotes}
-        targets = [*(possible if quotes is None else prices), destination]
         minimum_price = min(prices.values(), default=ZERO)
+        # If the incumbent caps total purchases below the spare tank capacity,
+        # more remaining fuel dominates across millilitre remainders too.
+        capacity_can_bind = (beat_cost is None or
+                             (trip.tank_capacity_l - trip.current_fuel_l) * minimum_price < beat_cost)
+        remaining_distances = self.remaining_distances(targets) if self.table is not None else None
+        price_bounds = self.price_bounds(targets, prices, remaining_distances, beat_cost) if remaining_distances else []
         heap = []
         serial = count()
         arrivals = {}
 
+        def remaining_from(node):
+            if node == destination:
+                return ZERO
+            if remaining_distances is not None:
+                return remaining_distances.get(node)
+            return self.lower_bound(node, destination)
+
         def enqueue(arrival, target=None):
-            remaining = self.lower_bound(arrival.node, destination) if arrival.node != destination else ZERO
+            remaining = remaining_from(arrival.node)
+            if remaining is None:
+                return
             lower_distance = arrival.distance + remaining
             distance_priority = lower_distance
-            lower_cost = arrival.cost + max(ZERO, remaining * self.rate + trip.arrival_reserve_l - arrival.fuel) * minimum_price
+            required_purchase = ZERO
+            premium = ZERO
             if target is not None:
-                leg_distance = self.lower_bound(arrival.node, target)
-                remaining = self.lower_bound(target, destination) if target != destination else ZERO
+                leg_distance = self.edge_distance(arrival.node, target)
+                remaining = remaining_from(target)
+                if leg_distance is None or remaining is None:
+                    return
                 distance_priority = arrival.distance + leg_distance + remaining
                 lower_distance = max(lower_distance, distance_priority)
                 reserve = trip.arrival_reserve_l if target == destination else trip.minimum_buffer_l
-                needed = max(ZERO, leg_distance * self.rate + reserve - arrival.fuel)
-                if (needed > 0 and arrival.node == 0) or arrival.fuel + needed > trip.tank_capacity_l:
+                required_purchase = max(ZERO, leg_distance * self.rate + reserve - arrival.fuel)
+                if ((required_purchase > 0 and arrival.node == 0)
+                        or arrival.fuel + required_purchase > trip.tank_capacity_l):
                     return
-                lower_cost = max(lower_cost, arrival.cost + needed * prices.get(arrival.node, ZERO))
+                if required_purchase:
+                    premium = required_purchase * (prices.get(arrival.node, minimum_price) - minimum_price)
+            total_purchase = max(required_purchase, (lower_distance - arrival.distance) * self.rate
+                                 + trip.arrival_reserve_l - arrival.fuel)
+            lower_cost = arrival.cost + total_purchase * minimum_price + premium
+            if target is None and total_purchase > 0 and price_bounds:
+                closer_cost = min(
+                    ((distances[arrival.node] * self.rate + trip.arrival_reserve_l - arrival.fuel) * price
+                     for price, distances in price_bounds if arrival.node in distances),
+                    default=Decimal("Infinity"),
+                )
+                lower_cost = max(lower_cost, arrival.cost + closer_cost)
             if lower_distance <= self.limit and (beat_cost is None or lower_cost < beat_cost):
-                if quotes is None:
+                if not optimize:
                     # A fallback only needs a feasible route. Favor reaching the
                     # destination quickly over proving minimum driving distance.
                     distance_priority += remaining
@@ -121,10 +243,14 @@ class RefuelingSearch:
             _, _, _, arrival, target = heappop(heap)
             if arrival.node == destination:
                 return arrival
-            end = tuple(arrival.leg.route.geometry["coordinates"][-1]) if arrival.leg else ()
+            end = ()
+            if arrival.leg:
+                route = arrival.leg.route
+                end = tuple(route.geometry["coordinates"][-1]) if route else (arrival.previous.node,)
             # Whole-millilitre purchases leave this remainder invariant for a
             # given path. Compare labels with the same attainable fuel levels.
-            key = (arrival.node, end, arrival.fuel % ML)
+            remainder = arrival.fuel % ML if capacity_can_bind else ZERO
+            key = (arrival.node, end, remainder)
             frontier = arrivals.setdefault(key, [])
             if target is None:
                 if any(a.cost <= arrival.cost and a.distance <= arrival.distance and a.fuel >= arrival.fuel
@@ -140,23 +266,27 @@ class RefuelingSearch:
             if arrival not in frontier:
                 continue
 
-            route = self.lookup(arrival.node, target)
-            if route is None or (end and end != tuple(route.geometry["coordinates"][0])):
+            key = (arrival.node, target)
+            if self.table is None:
+                self.lookup(*key)
+            distance = self.edge_distance(*key)
+            route = self.routes.get(key)
+            if distance is None or (route and len(end) == 2 and end != tuple(route.geometry["coordinates"][0])):
                 continue
             reserve = trip.arrival_reserve_l if target == destination else trip.minimum_buffer_l
-            remaining = arrival.fuel - route.distance_km * self.rate
+            remaining = arrival.fuel - distance * self.rate
             minimum = max(ZERO, reserve - remaining).quantize(ML, rounding=ROUND_CEILING)
             maximum = (trip.tank_capacity_l - arrival.fuel).quantize(ML, rounding=ROUND_FLOOR)
             if arrival.node == 0:
                 maximum = ZERO
             if minimum > maximum:
                 continue
-            amounts = (minimum, maximum) if quotes is not None and target != destination and minimum < maximum else (
-                minimum if quotes is not None or target == destination else maximum,)
+            amounts = (minimum, maximum) if optimize and target != destination and minimum < maximum else (
+                minimum if optimize or target == destination else maximum,)
             for buy in amounts:
-                enqueue(Arrival(target, remaining + buy, arrival.distance + route.distance_km,
+                enqueue(Arrival(target, remaining + buy, arrival.distance + distance,
                                 arrival.cost + buy * prices.get(arrival.node, ZERO),
-                                arrival, Leg(target, route, buy)))
+                                arrival, Leg(target, distance, buy, route)))
         return None
 
     def result(self, arrival: Arrival, *, optimized: bool = False):

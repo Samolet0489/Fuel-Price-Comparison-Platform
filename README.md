@@ -86,6 +86,10 @@ map and station catalogue prepared, the low-fuel trip should return a priced
 plan. Select **Regenerate prices** in the map toolbar to replace the generated
 prices for every station and recalculate the trip.
 
+To time the Vienna–Graz and Salzburg–Linz price comparisons and check that
+both rankings finish, run `uv run --frozen python -m scripts.check_trip_jobs
+--check-ranking`. This check uses the current generated station prices.
+
 Jobs have a 90-second deadline including queue time. An attempt can run for up
 to 30 seconds. A timeout or transient failure can retry once on a different
 ready worker. The default Compose stack has one worker, so a failed attempt can

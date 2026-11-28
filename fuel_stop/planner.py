@@ -192,7 +192,7 @@ def make_search(trip, router, direct, candidates, deadline):
 
     eligible = [station for station in candidates
                 if trip.fuel_type in station.fuel_types and station.opening_hours == "24/7"]
-    return RefuelingSearch(trip, direct, eligible, road_leg, deadline)
+    return RefuelingSearch(trip, direct, eligible, road_leg, deadline, getattr(router, "distance_table", None))
 
 
 def chain_cost(stops, quotes):

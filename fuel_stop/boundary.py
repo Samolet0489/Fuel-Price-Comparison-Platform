@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-from shapely import from_geojson
-from shapely.geometry import LineString, Point as GeoPoint
+from shapely import from_geojson, linestrings
+from shapely.geometry import Point as GeoPoint
 from shapely.prepared import prep
 from shapely.errors import ShapelyError
 
@@ -38,4 +38,4 @@ class AustriaBoundary:
     def covers_route(self, coordinates: list) -> bool:
         # Covers the WHOLE line, not just its vertices. No outward buffer:
         # even a small border excursion must not be silently accepted.
-        return self.prepared.covers(LineString(coordinates))
+        return self.prepared.covers(linestrings(coordinates))

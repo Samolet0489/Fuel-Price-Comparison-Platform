@@ -2,9 +2,12 @@
 import json
 import math
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from itertools import islice
 from pathlib import Path
+from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
@@ -61,6 +64,62 @@ class OSRMRouter:
                 or not isinstance(data.get("waypoints"), list) or not data["waypoints"]):
             raise DependencyUnavailable("routing", "routing_probe_failed")
 
+    def distance_table(self, points: list[Point], deadline: float) -> dict[tuple[int, int], Decimal | None] | None:
+        """Fetch directed fastest-route distances in blocks. Geometry is verified separately."""
+        block_size = 40
+        parallelism = 4
+        sources = [range(start, min(start + block_size, len(points) - 1))
+                   for start in range(0, len(points) - 1, block_size)]
+        targets = [range(start, min(start + block_size, len(points)))
+                   for start in range(1, len(points), block_size)]
+        blocks = ((rows, columns) for rows in sources for columns in targets)
+        distances = {}
+
+        def read_block(block):
+            rows, columns = block
+            indices = list(dict.fromkeys([*rows, *columns]))
+            positions = {index: position for position, index in enumerate(indices)}
+            coordinates = ";".join(f"{points[i].lon},{points[i].lat}" for i in indices)
+            params = {"annotations": "distance",
+                      "sources": ";".join(str(positions[i]) for i in rows),
+                      "destinations": ";".join(str(positions[i]) for i in columns)}
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise ValueError("Distance table deadline expired")
+            data = request(self.client, "routing", "GET", f"{self.base_url}/table/v1/driving/{coordinates}",
+                           params=params, timeout=min(2, remaining))
+            if data["code"] != "Ok":
+                raise ValueError("Distance table unavailable")
+            source_snaps = [snap["distance"] for snap in data["sources"]]
+            target_snaps = [snap["distance"] for snap in data["destinations"]]
+            values = data["distances"]
+            if len(values) != len(rows) or len(source_snaps) != len(rows) or len(target_snaps) != len(columns):
+                raise ValueError("Invalid distance table dimensions")
+            if any(not math.isfinite(snap) or snap < 0 for snap in [*source_snaps, *target_snaps]):
+                raise ValueError("Invalid distance table waypoints")
+            result = {}
+            for source, row, snap in zip(rows, values, source_snaps):
+                if len(row) != len(columns):
+                    raise ValueError("Invalid distance table row")
+                for target, meters, end in zip(columns, row, target_snaps):
+                    if meters is None or snap > 100 or end > 100:
+                        result[source, target] = None
+                        continue
+                    value = Decimal(str(meters)) / 1000
+                    if not value.is_finite() or value < 0:
+                        raise ValueError("Invalid leg distance")
+                    result[source, target] = value
+            return result
+
+        try:
+            with ThreadPoolExecutor(max_workers=parallelism) as pool:
+                while batch := list(islice(blocks, parallelism)):
+                    for result in pool.map(read_block, batch):
+                        distances.update(result)
+        except (DependencyUnavailable, KeyError, TypeError, ValueError, InvalidOperation):
+            return None
+        return distances
+
     def route(self, points: list[Point]) -> Route:
         if not 2 <= len(points) <= 3:
             raise ValueError("Expected origin, optional station, and destination")
@@ -94,9 +153,9 @@ class OSRMRouter:
             if geometry["type"] != "LineString" or len(geometry["coordinates"]) < 2:
                 raise ValueError("Missing map geometry")
             for coordinate in geometry["coordinates"]:
-                if len(coordinate) != 2:
-                    raise ValueError("Expected 2D route coordinates")
-                Point(lon=coordinate[0], lat=coordinate[1])
+                if (len(coordinate) != 2 or not -180 <= coordinate[0] <= 180
+                        or not -90 <= coordinate[1] <= 90):
+                    raise ValueError("Invalid 2D route coordinates")
             waypoints = data["waypoints"]
             if len(waypoints) != len(points):
                 raise ValueError("Invalid snapped waypoints")

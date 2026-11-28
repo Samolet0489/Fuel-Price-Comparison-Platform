@@ -304,6 +304,42 @@ def test_buy_more_now_to_avoid_fuel_at_the_expensive_next_stop():
     assert result.estimated_cost_eur == 13
 
 
+@pytest.mark.parametrize("real_leg", [50, None])
+def test_distance_table_proposal_is_repriced_or_discarded_after_road_verification(real_leg):
+    roads = {(0, 1): 40, (2, 3): 25, (1, 3): 75}
+    if real_leg is not None:
+        roads[1, 2] = real_leg
+    replay = ChainReplay(115, roads, prices={1: 2, 2: 1})
+    probed = []
+
+    def distance_table(points, deadline):
+        nodes = [replay.points.index(point) for point in points]
+        return {(i, j): Decimal(35) if (source, target) == (1, 2)
+                else replay.roads.get((source, target))
+                for i, source in enumerate(nodes[:-1]) for j, target in enumerate(nodes[1:], 1)}
+
+    route = replay.route
+
+    def checked_route(points):
+        if len(points) == 2:
+            probed.append(tuple(replay.points.index(point) for point in points))
+        return route(points)
+
+    replay.route = checked_route
+    replay.distance_table = distance_table
+    result = replay.plan()
+    assert (1, 2) in probed
+    assert result.ranking_complete
+    if real_leg is None:
+        assert [stop.station.id for stop in result.stops] == ["1"]
+        assert result.estimated_cost_eur == Decimal("17.00")
+    else:
+        assert [stop.station.id for stop in result.stops] == ["1", "2"]
+        assert result.route.leg_distances_km == [40, 50, 25]
+        assert result.estimated_cost_eur == Decimal("13.50")
+    assert result.arrival_fuel_l == 2
+
+
 def test_feasible_chain_keeps_its_prices_if_optimization_times_out(monkeypatch):
     replay = ChainReplay(140, {(0, 1): 40, (1, 2): 50, (2, 3): 50}, prices={1: 1, 2: 2})
     original = RefuelingSearch.search
