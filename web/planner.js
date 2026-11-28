@@ -224,6 +224,15 @@ async function toggleStations() {
     }
 }
 
+async function loadPriceConfig() {
+    try {
+        const config = await request("/fuel-prices/config", { cache: "no-store" });
+        regenerateButton.hidden = config.generated_prices_enabled !== true;
+    } catch {
+        // Keep regeneration hidden until the API confirms it is available.
+    }
+}
+
 async function regeneratePrices() {
     const replan = !resultPanel.hidden;
     const stationsWereDisabled = stationsButton.disabled;
@@ -499,4 +508,5 @@ byId("example-direct").addEventListener("click", () => runExample(35));
 fitButton.addEventListener("click", fitRoute);
 stationsButton.addEventListener("click", toggleStations);
 regenerateButton.addEventListener("click", regeneratePrices);
+loadPriceConfig();
 runExample(8);

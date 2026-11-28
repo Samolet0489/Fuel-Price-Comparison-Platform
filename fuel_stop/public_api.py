@@ -68,6 +68,11 @@ def list_stations():
     return catalogue
 
 
+@app.get("/fuel-prices/config")
+def price_config() -> dict[str, bool]:
+    return {"generated_prices_enabled": generated_prices_enabled()}
+
+
 @app.get("/fuel-prices/revision")
 def price_revision() -> dict[str, int]:
     return {"revision": app.state.jobs.price_revision()}

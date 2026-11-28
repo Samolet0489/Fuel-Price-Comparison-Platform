@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/assets/planner.css">
     <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script defer src="/assets/planner.js?v=2"></script>
+    <script defer src="/assets/planner.js?v=3"></script>
 </head>
 <body>
     <header class="topbar">
@@ -78,7 +78,7 @@
                 <div class="map-toolbar">
                     <span id="route-caption">Vienna to Graz</span>
                     <button id="all-stations" class="stations-toggle" type="button" aria-pressed="false" disabled>All stations</button>
-                    <button id="regenerate-prices" class="stations-toggle" type="button">Regenerate prices</button>
+                    <button id="regenerate-prices" class="stations-toggle" type="button" hidden>Regenerate prices</button>
                 </div>
             </div>
             <p id="station-status" class="station-status" role="status"></p>

@@ -126,6 +126,7 @@ def test_regeneration_updates_all_prices_and_persists_across_api_restart(store, 
             lambda _: httpx.Response(200, json=catalogue))) as worker:
         with TestClient(app) as client:
             app.state.worker = worker
+            assert client.get("/fuel-prices/config").raise_for_status().json() == {"generated_prices_enabled": True}
             before = client.get("/stations").raise_for_status().json()["generated_prices"]["node/42"]
             assert client.post("/fuel-prices/regenerate").status_code == 415
             assert client.get("/fuel-prices/revision").json() == {"revision": 0}
@@ -135,6 +136,10 @@ def test_regeneration_updates_all_prices_and_persists_across_api_restart(store, 
         with TestClient(app) as restarted:
             app.state.worker = worker
             assert restarted.get("/stations").raise_for_status().json()["generated_prices"]["node/42"] == after
+            monkeypatch.setenv("PRICE_MODE", "observed")
+            assert restarted.get("/fuel-prices/config").raise_for_status().json() == {"generated_prices_enabled": False}
+            assert restarted.post("/fuel-prices/regenerate", json={}).status_code == 409
+            assert restarted.get("/fuel-prices/revision").json() == {"revision": 1}
     with ThreadPoolExecutor(max_workers=2) as users:
         revisions = list(users.map(lambda _: store.regenerate_prices(), range(2)))
     assert sorted(revisions) == [2, 3]
